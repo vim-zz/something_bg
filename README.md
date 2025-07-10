@@ -2,13 +2,14 @@
 
 ![Menu Bar Screenshot](menubar.webp)
 
-Something in the Background is a macOS menu bar application that helps manage SSH tunnels and background processes. It provides an easy way to start and stop various services through a simple menu interface.
+A macOS menu bar application for managing background processes like SSH tunnels, port forwarding, and development services. Everything is configured via a simple TOML file.
 
 ## Features
 
-- Simple menu bar interface
-- Easy tunnel management
-- Automatic cleanup on app termination
+- Toggle any CLI tool on/off from the menu bar
+- TOML based configuration
+- Automatic process cleanup on app termination
+- Custom PATH environment support
 - Native macOS integration
 
 ## Installation
@@ -32,70 +33,56 @@ cd something_bg
 cargo bundle --release
 ```
 
-This will create a macOS application bundle in `target/release/bundle/osx/Something in the Background.app`
-
 3. Move the app to your Applications folder:
 ```bash
 cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/
 ```
 
-### Running
-
-Simply double-click the "Something in the Background.app" in your Applications folder or launch it from Spotlight.
-
-The app will appear as a menu bar item. The available options are configured via `~/.config/something_bg/config.toml`.
+Launch the app from your Applications folder. It will appear as a menu bar item.
 
 ## Configuration
 
-The app uses a TOML configuration file located at `~/.config/something_bg/config.toml`. On first run, the app will create this file with default settings.
+The app loads all menu items from `~/.config/something_bg/config.toml`. On first run, it creates this file with example configurations.
 
-### Configuration Format
+### Example Configuration
 
 ```toml
-# PATH environment variable for command execution
-path = "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/opt/homebrew/bin"
+# Custom PATH for command execution
+path = "/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin"
 
 [tunnels]
 
-# Example: Docker environment management
-[tunnels.colima]
-name = "Colima Docker"
-command = "colima"
-args = ["start"]
-kill_command = "colima"
-kill_args = ["stop"]
-
-# Example: Generic service management
-[tunnels.my-service]
-name = "My Background Service"
-command = "my-service"
-args = ["--daemon", "--config", "/path/to/config"]
+# SSH tunnel with port forwarding
+[tunnels.database]
+name = "Database Tunnel"
+command = "ssh"
+args = ["-N", "-L", "5432:localhost:5432", "user@server.com"]
 kill_command = "pkill"
-kill_args = ["-f", "my-service"]
+kill_args = ["-f", "user@server.com"]
 
-# Example: Development server
+# Kubernetes port forwarding
+[tunnels.k8s-service]
+name = "K8s Service"
+command = "kubectl"
+args = ["port-forward", "svc/my-service", "8080:8080"]
+kill_command = "pkill"
+kill_args = ["-f", "svc/my-service"]
+
+# Development server
 [tunnels.dev-server]
-name = "Development Server"
+name = "Dev Server"
 command = "npm"
 args = ["run", "dev"]
 kill_command = "pkill"
 kill_args = ["-f", "npm.*dev"]
 ```
 
-### Configuration Fields
+Each tunnel needs:
+- `name`: Display name in the menu
+- `command` + `args`: Command to start the service
+- `kill_command` + `kill_args`: Command to stop the service
 
-Each tunnel configuration includes:
-- `name`: Display name shown in the menu
-- `command`: Command to execute
-- `args`: Array of command arguments
-- `kill_command`: Command used to stop the process
-- `kill_args`: Array of arguments for the kill command
-
-The global `path` setting defines the PATH environment variable used when executing commands.
-
-### Customization
-
-You can add, remove, or modify tunnel configurations by editing the TOML file. **Note: You need to restart the app to pick up configuration changes.**
+Restart the app to pick up configuration changes.
 
 ## License
 
