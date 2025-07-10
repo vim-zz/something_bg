@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch: # click the button on Github repo!
 
+permissions:
+  contents: write
+
 jobs:
   build-macos:
     runs-on: macos-latest
