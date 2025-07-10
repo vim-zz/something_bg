@@ -1,5 +1,7 @@
 # Something in the Background
 
+![Menu Bar Screenshot](menubar.webp)
+
 Something in the Background is a macOS menu bar application that helps manage SSH tunnels and background processes. It provides an easy way to start and stop various services through a simple menu interface.
 
 ## Features
@@ -93,7 +95,7 @@ The global `path` setting defines the PATH environment variable used when execut
 
 ### Customization
 
-You can add, remove, or modify tunnel configurations by editing the TOML file. The app will automatically reload the configuration when creating the menu.
+You can add, remove, or modify tunnel configurations by editing the TOML file. **Note: You need to restart the app to pick up configuration changes.**
 
 ## License
 
