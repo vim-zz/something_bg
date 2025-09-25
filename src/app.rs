@@ -4,9 +4,9 @@
 // Also provides methods for cleanup or other global operations.
 
 use cocoa::base::id;
+use log::{error, info, warn};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use log::{info, error, warn};
 
 use crate::config::Config;
 use crate::tunnel::TunnelManager;

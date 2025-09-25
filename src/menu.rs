@@ -5,20 +5,19 @@
 // the logic to `toggleTunnel` in `tunnel.rs`.
 
 use cocoa::appkit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
-use cocoa::base::{id, nil, NO, YES, BOOL};
-use cocoa::foundation::{NSAutoreleasePool, NSString, NSSize};
+use cocoa::base::{NO, id, nil};
+use cocoa::foundation::{NSAutoreleasePool, NSString};
+use log::{error, warn};
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};
-use std::path::PathBuf;
-use log::{error, warn};
 
-use crate::{applicationWillTerminate, tunnel::toggleTunnel};
 use crate::config::Config;
+use crate::{applicationWillTerminate, tunnel::toggleTunnel};
 
 // These are backup icons if image loading fails
-const ICON_INACTIVE: &str = "○";  // Empty circle for idle
-const ICON_ACTIVE: &str = "●";   // Filled circle for active
+const ICON_INACTIVE: &str = "○"; // Empty circle for idle
+const ICON_ACTIVE: &str = "●"; // Filled circle for active
 
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -73,8 +72,10 @@ pub fn create_menu(handler: id) -> id {
         menu.addItem_(separator1);
 
         // Add About item
-        let about_title =
-            NSString::alloc(nil).init_str(&format!("Something in the Background (v{})", get_app_version()));
+        let about_title = NSString::alloc(nil).init_str(&format!(
+            "Something in the Background (v{})",
+            get_app_version()
+        ));
         let about_item = NSMenuItem::alloc(nil).initWithTitle_action_keyEquivalent_(
             about_title,
             sel!(orderFrontStandardAboutPanel:),
@@ -127,69 +128,18 @@ pub fn create_status_item(handler: id) -> id {
         let status_item = status_bar.statusItemWithLength_(-1.0);
 
         let button: id = msg_send![status_item, button];
-
-        // Try to load the image first
-        let image = load_status_bar_image(false); // Start with inactive state
-
-        if image != nil {
-            // If image loaded successfully, use it
-            let _: () = msg_send![button, setImage: image];
-        } else {
-            // Fall back to text if image loading fails
-            let title = NSString::alloc(nil).init_str(ICON_INACTIVE);
-            let _: () = msg_send![button, setTitle: title];
-        }
+        let title = NSString::alloc(nil).init_str(ICON_INACTIVE);
+        let _: () = msg_send![button, setTitle: title];
 
         status_item.setMenu_(create_menu(handler));
         status_item
     }
 }
 
-fn load_status_bar_image(active: bool) -> id {
-    return nil;
-
-    unsafe {
-        let image: id = msg_send![class!(NSImage), new];
-        let size = NSSize::new(16.0, 16.0);
-        let _: () = msg_send![image, setSize:size];
-
-        // Path to the image based on state (active or inactive)
-        let image_name = if active { "peacock_open_16x16.png" } else { "peacock_folded_16x16.png" };
-
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("resources")
-            .join("images")
-            .join(image_name);
-
-        if path.exists() {
-            let path_str = path.to_str().unwrap_or("");
-            let path_ns = NSString::alloc(nil).init_str(path_str);
-
-            let _: () = msg_send![image, initWithContentsOfFile:path_ns];
-            let _: () = msg_send![image, setTemplate:YES as BOOL];
-            return image;
-        }
-
-        // If image loading fails, return nil
-        nil
-    }
-}
-
 pub fn update_status_item_title(status_item: id, active: bool) {
     unsafe {
         let button: id = msg_send![status_item, button];
-
-        // Try to load the image first
-        let image = load_status_bar_image(active);
-
-        if image != nil {
-            // If image loaded successfully, use it
-            let _: () = msg_send![button, setImage: image];
-            let _: () = msg_send![button, setTitle: nil]; // Clear any existing title
-        } else {
-            // Fall back to text if image loading fails
-            let title = NSString::alloc(nil).init_str(if active { ICON_ACTIVE } else { ICON_INACTIVE });
-            let _: () = msg_send![button, setTitle: title];
-        }
+        let title = NSString::alloc(nil).init_str(if active { ICON_ACTIVE } else { ICON_INACTIVE });
+        let _: () = msg_send![button, setTitle: title];
     }
 }

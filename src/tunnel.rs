@@ -10,7 +10,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use cocoa::base::{id, BOOL, NO, YES};
+use cocoa::base::{BOOL, NO, YES, id};
 use cocoa::foundation::NSString;
 use log::{debug, error, info, warn};
 use objc::runtime::{Object, Sel};
@@ -71,13 +71,14 @@ impl TunnelManager {
                     );
 
                     let mut cmd = Command::new(&command.command);
-                    
+
                     // Get PATH from config
                     let config_path = match Config::load() {
                         Ok(config) => config.get_path(),
-                        Err(_) => "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/opt/homebrew/bin".to_string(),
+                        Err(_) => "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/opt/homebrew/bin"
+                            .to_string(),
                     };
-                    
+
                     // Update PATH to include configured paths
                     let new_path = cmd
                         .get_envs()

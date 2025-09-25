@@ -1,20 +1,7 @@
 [package]
 name = "something_bg"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
-
-[dependencies]
-cocoa = "0.26"
-objc = "0.2"
-core-foundation = "0.10"
-libc = "0.2"
-log = "0.4"
-oslog = "0.2"
-toml = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-
-[patch.crates-io]
-objc = { git = "https://github.com/warpdotdev/rust-objc.git", branch = "warpdotdev/0.2.7" }
 
 # Mac App Bundle configuration for the `cargo bundle` command
 [package.metadata.bundle]
@@ -23,3 +10,22 @@ icon = ["resources/rocket.icns"]
 identifier = "com.vim-zz.something-bg"
 name = "Something in the Background"
 resources = ["resources/*.png", "resources/images/*.png"]
+
+[dependencies]
+cocoa = "0.26"
+objc = "0.2"
+core-foundation = "0.10"
+libc = "0.2"
+log = "0.4"
+oslog = "0.2"
+toml = { version = "0.8", features = ["preserve_order"] }
+serde = { version = "1.0", features = ["derive"] }
+
+[patch.crates-io]
+objc = { git = "https://github.com/warpdotdev/rust-objc.git", branch = "warpdotdev/0.2.7" }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"  # Optimize for size.
