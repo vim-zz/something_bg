@@ -5,6 +5,34 @@ All notable changes to Something in the Background will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2025-11-10
+
+### Changed
+- **Major internal modernization**: Complete migration from deprecated `objc` and `cocoa` crates to modern `objc2` ecosystem
+  - Replaced manual Objective-C bindings with `objc2`, `objc2-foundation`, and `objc2-app-kit` crates
+  - Updated to Rust 2024 Edition for latest language features
+  - **Zero breaking changes**: All functionality remains identical for end users
+  - Same configuration format, file locations, and behavior
+
+### Technical Details
+- **Memory Management**: Migrated from raw `id` pointers to `Retained<T>` smart pointers for automatic reference counting
+- **Class Declaration**: Replaced `ClassDecl::new()` + `add_method()` with modern `define_class!` macro
+- **Type Safety**: Enhanced compile-time guarantees with stronger Rust-Objective-C type integration
+- **API Updates**:
+  - `NSString::alloc(nil).init_str()` → `NSString::from_str()`
+  - Manual memory management → Automatic with `Retained<T>`
+  - `NO`/`YES` constants → `0`/`1` integers
+  - Removed `NSAutoreleasePool` (managed automatically by objc2)
+- **Dependencies**: Removed patched `objc` fork dependency, now using stable crates from crates.io
+- **Binary Size**: Optimized release build to 623 KB with modern compiler optimizations
+
+### Benefits
+- Better memory safety with automatic reference counting preventing memory leaks
+- Modern APIs with up-to-date bindings for latest macOS SDKs (Xcode 16.4)
+- Active maintenance: `objc2` is actively developed with 100% API documentation coverage
+- Future-proof foundation for supporting newer macOS features
+- Improved developer experience with better type safety and error messages
+
 ## [1.0.2] - 2025-01-27
 
 ### Fixed
