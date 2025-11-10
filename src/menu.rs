@@ -4,16 +4,12 @@
 // that receives menu events. We keep the function references the same, but route
 // the logic to `toggleTunnel` in `tunnel.rs`.
 
-use cocoa::appkit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
-use cocoa::base::{NO, id, nil};
-use cocoa::foundation::{NSAutoreleasePool, NSString};
+use objc2::{define_class, rc::Retained, runtime::AnyObject, sel, ClassType, MainThreadOnly};
+use objc2_app_kit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
+use objc2_foundation::{ns_string, MainThreadMarker, NSObject, NSObjectProtocol, NSString};
 use log::{error, warn};
-use objc::declare::ClassDecl;
-use objc::runtime::{Class, Object, Sel};
-use objc::{class, msg_send, sel, sel_impl};
 
 use crate::config::Config;
-use crate::{applicationWillTerminate, tunnel::toggleTunnel};
 
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
@@ -23,33 +19,45 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// Registers our Objective-C class, `MenuHandler`, with the selectors
-/// for toggling tunnels and handling app termination.
-pub fn register_selector() -> *const Class {
-    unsafe {
-        let superclass = class!(NSObject);
-        let mut decl = ClassDecl::new("MenuHandler", superclass).unwrap();
+// Declare the MenuHandler class using objc2's define_class! macro
+define_class!(
+    // SAFETY:
+    // - The superclass NSObject does not have any subclassing requirements.
+    // - MenuHandler does not implement Drop.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "MenuHandler"]
+    pub struct MenuHandler;
 
-        // Link the "toggleTunnel:" selector to our Rust function
-        decl.add_method(
-            sel!(toggleTunnel:),
-            toggleTunnel as extern "C" fn(&Object, Sel, id),
-        );
+    unsafe impl NSObjectProtocol for MenuHandler {}
 
-        // Link the "applicationWillTerminate:" selector
-        decl.add_method(
-            sel!(applicationWillTerminate:),
-            applicationWillTerminate as extern "C" fn(&Object, Sel, id),
-        );
+    impl MenuHandler {
+        #[unsafe(method(toggleTunnel:))]
+        fn toggle_tunnel(&self, item: &NSMenuItem) {
+            crate::tunnel::toggle_tunnel_handler(item);
+        }
 
-        decl.register()
+        #[unsafe(method(applicationWillTerminate:))]
+        fn application_will_terminate(&self, _notification: &NSObject) {
+            crate::application_will_terminate_handler();
+        }
+    }
+);
+
+impl MenuHandler {
+    pub fn new(_mtm: MainThreadMarker) -> Retained<Self> {
+        let cls = Self::class();
+        unsafe {
+            let obj: Retained<Self> = objc2::msg_send![cls, new];
+            obj
+        }
     }
 }
 
 /// Create the NSMenu for the status item.
-pub fn create_menu(handler: id) -> id {
+pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSMenu> {
     unsafe {
-        let menu = NSMenu::new(nil).autorelease();
+        let menu = NSMenu::new(mtm);
 
         // Load configuration and create menu items dynamically
         let config = match Config::load() {
@@ -63,83 +71,84 @@ pub fn create_menu(handler: id) -> id {
 
         // Create menu items from configuration
         for (key, tunnel_config) in config.tunnels.iter() {
-            let menu_item = create_menu_item(handler, &tunnel_config.name, key);
-            menu.addItem_(menu_item);
+            let menu_item = create_menu_item(handler, &tunnel_config.name, key, mtm);
+            menu.addItem(&menu_item);
         }
 
         // Add Separator before About
-        let separator1 = NSMenuItem::separatorItem(nil);
-        menu.addItem_(separator1);
+        let separator1 = NSMenuItem::separatorItem(mtm);
+        menu.addItem(&separator1);
 
         // Add About item
-        let about_title = NSString::alloc(nil).init_str(&format!(
+        let about_title = NSString::from_str(&format!(
             "Something in the Background (v{})",
             get_app_version()
         ));
-        let about_item = NSMenuItem::alloc(nil).initWithTitle_action_keyEquivalent_(
-            about_title,
-            sel!(orderFrontStandardAboutPanel:),
-            NSString::alloc(nil).init_str(""),
+        let about_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &about_title,
+            Some(sel!(orderFrontStandardAboutPanel:)),
+            ns_string!(""),
         );
-        about_item.setTarget_(handler);
-        menu.addItem_(about_item);
+        about_item.setTarget(Some(handler as &AnyObject));
+        menu.addItem(&about_item);
 
-        // Add Separator before About
-        let separator1 = NSMenuItem::separatorItem(nil);
-        menu.addItem_(separator1);
+        // Add Separator before Quit
+        let separator2 = NSMenuItem::separatorItem(mtm);
+        menu.addItem(&separator2);
 
         // Quit menu item
-        let quit_title = NSString::alloc(nil).init_str("Quit");
-        let quit_item = NSMenuItem::alloc(nil).initWithTitle_action_keyEquivalent_(
-            quit_title,
-            sel!(terminate:),
-            NSString::alloc(nil).init_str("q"),
+        let quit_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            ns_string!("Quit"),
+            Some(sel!(terminate:)),
+            ns_string!("q"),
         );
 
-        menu.addItem_(quit_item);
+        menu.addItem(&quit_item);
 
         menu
     }
 }
 
 /// Helper to create a single NSMenuItem for toggling a tunnel.
-fn create_menu_item(handler: id, title: &str, command_id: &str) -> id {
+fn create_menu_item(handler: &MenuHandler, title: &str, command_id: &str, mtm: MainThreadMarker) -> Retained<NSMenuItem> {
     unsafe {
-        let title_ns = NSString::alloc(nil).init_str(title);
-        let item = NSMenuItem::alloc(nil).initWithTitle_action_keyEquivalent_(
-            title_ns,
-            sel!(toggleTunnel:),
-            NSString::alloc(nil).init_str(""),
+        let title_ns = NSString::from_str(title);
+        let item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &title_ns,
+            Some(sel!(toggleTunnel:)),
+            ns_string!(""),
         );
 
-        let command_id_ns = NSString::alloc(nil).init_str(command_id);
-        let _: () = msg_send![item, setRepresentedObject: command_id_ns];
-        let _: () = msg_send![item, setTarget: handler];
-        let _: () = msg_send![item, setState: NO];
+        let command_id_ns = NSString::from_str(command_id);
+        item.setRepresentedObject(Some(&command_id_ns));
+        item.setTarget(Some(handler as &AnyObject));
+        item.setState(0); // NSOffState = 0
 
         item
     }
 }
 
 /// Creates a status bar item and attaches the menu to it.
-pub fn create_status_item(handler: id) -> id {
-    unsafe {
-        let status_bar = NSStatusBar::systemStatusBar(nil);
-        let status_item = status_bar.statusItemWithLength_(-1.0);
+pub fn create_status_item(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSStatusItem> {
+    let status_bar = NSStatusBar::systemStatusBar();
+    let status_item = status_bar.statusItemWithLength(-1.0);
 
-        let button: id = msg_send![status_item, button];
-        let title = NSString::alloc(nil).init_str(ICON_INACTIVE);
-        let _: () = msg_send![button, setTitle: title];
-
-        status_item.setMenu_(create_menu(handler));
-        status_item
+    if let Some(button) = status_item.button(mtm) {
+        let title = NSString::from_str(ICON_INACTIVE);
+        button.setTitle(&title);
     }
+
+    status_item.setMenu(Some(&create_menu(handler, mtm)));
+    status_item
 }
 
-pub fn update_status_item_title(status_item: id, active: bool) {
-    unsafe {
-        let button: id = msg_send![status_item, button];
-        let title = NSString::alloc(nil).init_str(if active { ICON_ACTIVE } else { ICON_INACTIVE });
-        let _: () = msg_send![button, setTitle: title];
+pub fn update_status_item_title(status_item: &NSStatusItem, active: bool, mtm: MainThreadMarker) {
+    if let Some(button) = status_item.button(mtm) {
+        let title_str = if active { ICON_ACTIVE } else { ICON_INACTIVE };
+        let title = NSString::from_str(title_str);
+        button.setTitle(&title);
     }
 }

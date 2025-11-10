@@ -10,11 +10,9 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use cocoa::base::{BOOL, NO, YES, id};
-use cocoa::foundation::NSString;
+use objc2_app_kit::NSMenuItem;
+use objc2_foundation::NSString;
 use log::{debug, error, info, warn};
-use objc::runtime::{Object, Sel};
-use objc::{msg_send, sel, sel_impl};
 
 use crate::config::Config;
 
@@ -167,47 +165,45 @@ impl TunnelManager {
         // Reset the status item icon
         if let Some(app) = crate::GLOBAL_APP.get() {
             if let Some(status_item) = app.get_status_item() {
-                crate::menu::update_status_item_title(status_item, false);
+                if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+                    crate::menu::update_status_item_title(&status_item, false, mtm);
+                }
             }
         }
     }
 }
 
-/// This is the extern C function that Cocoa calls when the user toggles a menu item.
+/// This is the function that handles the menu item toggle.
 /// Instead of interacting with static globals directly, we route the request to the
 /// `TunnelManager` inside the global `App` reference.
-#[unsafe(no_mangle)]
-pub extern "C" fn toggleTunnel(_self: &Object, _sel: Sel, item: id) {
+pub fn toggle_tunnel_handler(item: &NSMenuItem) {
     // Identify if the menu item is currently active or not.
-    let state: BOOL = unsafe { msg_send![item, state] };
-    let new_state = if state == YES { NO } else { YES };
+    let state = item.state();
+    let new_state = if state == 1 { 0 } else { 1 }; // NSOnState = 1, NSOffState = 0
 
-    unsafe {
-        let _: () = msg_send![item, setState: new_state];
-    }
+    item.setState(new_state);
 
     // Extract the command key from the menu item
-    let command_id: id = unsafe { msg_send![item, representedObject] };
-    let command_str = unsafe { NSString::UTF8String(command_id) };
-    let command_key = unsafe {
-        std::ffi::CStr::from_ptr(command_str)
-            .to_string_lossy()
-            .into_owned()
-    };
+    if let Some(command_id) = item.representedObject() {
+        // Safely downcast to NSString
+        let command_id_ns: *const NSString = &*command_id as *const _ as *const NSString;
+        let command_key = unsafe { (*command_id_ns).to_string() };
 
-    // Get a handle to the global `App`.
-    // In a real app, you'd store a reference to `App` in the handler class or in a global.
-    // For demonstration, you might have a global reference or pass it in another way.
-    if let Some(app) = crate::GLOBAL_APP.get() {
-        let enable = new_state == YES;
-        app.tunnel_manager.toggle(&command_key, enable);
+        // Get a handle to the global `App`.
+        if let Some(app) = crate::GLOBAL_APP.get() {
+            let enable = new_state == 1;
+            app.tunnel_manager.toggle(&command_key, enable);
 
-        // Update the status item icon if we have a reference to it
-        if let Some(status_item) = app.get_status_item() {
-            crate::menu::update_status_item_title(
-                status_item,
-                app.tunnel_manager.has_active_tunnels(),
-            );
+            // Update the status item icon if we have a reference to it
+            if let Some(status_item) = app.get_status_item() {
+                if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+                    crate::menu::update_status_item_title(
+                        &status_item,
+                        app.tunnel_manager.has_active_tunnels(),
+                        mtm,
+                    );
+                }
+            }
         }
     }
 }

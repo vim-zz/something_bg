@@ -1,4 +1,39 @@
-# Release Notes - Something in the Background v1.0.2
+# Release Notes - Something in the Background
+
+## v1.0.3
+
+**Release Date:** November 10, 2025
+
+### 🔄 Major Internal Modernization
+
+**Migration to objc2:** Complete rewrite of Objective-C bindings using the modern `objc2` crate ecosystem.
+
+#### What Changed
+
+**Under the Hood:**
+- Migrated from deprecated `objc` and `cocoa` crates to modern `objc2`, `objc2-foundation`, and `objc2-app-kit`
+- Replaced manual memory management with automatic reference counting via `Retained<T>`
+- Updated class declaration from `ClassDecl` to modern `define_class!` macro
+- Enhanced type safety with stronger compile-time guarantees
+- Improved memory safety and reduced potential for leaks
+
+**For Users:**
+- ✅ **Zero breaking changes** - all functionality remains identical
+- ✅ Same configuration format and file locations
+- ✅ Same menu bar interface and behavior
+- ✅ All tunnel commands work exactly as before
+
+#### Technical Benefits
+
+1. **Better Memory Safety**: Automatic reference counting prevents memory leaks
+2. **Modern APIs**: Up-to-date bindings for latest macOS SDKs (Xcode 16.4)
+3. **Active Maintenance**: `objc2` is actively developed with 100% API documentation
+4. **Future-Proof**: Foundation for supporting newer macOS features
+5. **Smaller Binary**: Optimized release build (623 KB)
+
+---
+
+## v1.0.2
 
 **Release Date:** January 27, 2025
 

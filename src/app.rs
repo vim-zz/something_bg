@@ -3,7 +3,8 @@
 // Defines the `App` structure holding shared state (commands, active tunnels).
 // Also provides methods for cleanup or other global operations.
 
-use cocoa::base::id;
+use objc2::rc::Retained;
+use objc2_app_kit::NSStatusItem;
 use log::{error, info, warn};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -12,7 +13,7 @@ use crate::config::Config;
 use crate::tunnel::TunnelManager;
 
 // Wrapper type to make the status item thread-safe
-pub struct StatusItemWrapper(pub id);
+pub struct StatusItemWrapper(pub Retained<NSStatusItem>);
 unsafe impl Send for StatusItemWrapper {}
 unsafe impl Sync for StatusItemWrapper {}
 
@@ -51,14 +52,14 @@ impl App {
         }
     }
 
-    pub fn set_status_item(&mut self, item: id) {
+    pub fn set_status_item(&mut self, item: Retained<NSStatusItem>) {
         self.status_item = Some(Arc::new(Mutex::new(StatusItemWrapper(item))));
     }
 
-    pub fn get_status_item(&self) -> Option<id> {
+    pub fn get_status_item(&self) -> Option<Retained<NSStatusItem>> {
         self.status_item
             .as_ref()
-            .and_then(|wrapper| wrapper.lock().ok().map(|guard| guard.0))
+            .and_then(|wrapper| wrapper.lock().ok().map(|guard| guard.0.clone()))
     }
 
     /// Cleans up any active tunnels. Called on app termination.

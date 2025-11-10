@@ -5,12 +5,9 @@
 // look up the instance of `App` easily. Alternatively, you can store the `App` reference
 // inside the Objective-C handler class.
 
-use cocoa::appkit::{NSApplication, NSApplicationActivationPolicy};
-use cocoa::base::{id, nil};
-use cocoa::foundation::{NSAutoreleasePool, NSString};
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+use objc2_foundation::{MainThreadMarker, NSNotificationCenter};
 use log::info;
-use objc::runtime::{Object, Sel};
-use objc::{class, msg_send, sel, sel_impl};
 use std::sync::OnceLock;
 
 mod app;
@@ -26,8 +23,7 @@ use app::App;
 // global state to an Objective-C selector.
 pub static GLOBAL_APP: OnceLock<app::App> = OnceLock::new();
 
-#[unsafe(no_mangle)]
-extern "C" fn applicationWillTerminate(_: &Object, _: Sel, _notification: id) {
+pub fn application_will_terminate_handler() {
     info!("Application is terminating; cleaning up tunnels...");
     if let Some(app) = GLOBAL_APP.get() {
         app.cleanup_tunnels();
@@ -40,35 +36,36 @@ fn main() {
     logger::init_logger();
     info!("Application starting up");
 
+    // 2. Get the main thread marker (required for AppKit APIs)
+    let mtm = MainThreadMarker::new().expect("Must be on main thread");
+
+    // 3. Cocoa setup
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+
+    // 4. Create the handler (Objective-C class) for menu events
+    let handler = menu::MenuHandler::new(mtm);
+
+    // 5. Create the status bar item with attached menu
+    let status_item = menu::create_status_item(&handler, mtm);
+
+    // Store the app in the global variable
+    let mut the_app = App::new();
+    the_app.set_status_item(status_item);
+    GLOBAL_APP.set(the_app).ok().unwrap();
+
+    // 6. Observe application termination
+    let notification_center = NSNotificationCenter::defaultCenter();
     unsafe {
-        // 3. Cocoa setup
-        let _pool = NSAutoreleasePool::new(nil);
-        let app = NSApplication::sharedApplication(nil);
-        app.setActivationPolicy_(
-            NSApplicationActivationPolicy::NSApplicationActivationPolicyAccessory,
+        let notification_name = objc2_foundation::NSString::from_str("NSApplicationWillTerminateNotification");
+        notification_center.addObserver_selector_name_object(
+            &handler,
+            objc2::sel!(applicationWillTerminate:),
+            Some(&notification_name),
+            None,
         );
-
-        // 4. Create the handler (Objective-C class) for menu events
-        let handler_class = menu::register_selector();
-        let handler: id = msg_send![handler_class, new];
-
-        // 5. Create the status bar item with attached menu
-        let status_item = menu::create_status_item(handler);
-        // Store the app in the global variable
-        let mut the_app = App::new();
-        the_app.set_status_item(status_item);
-        GLOBAL_APP.set(the_app).ok().unwrap();
-
-        // 6. Observe application termination
-        let notification_center: id = msg_send![class!(NSNotificationCenter), defaultCenter];
-        let _: () = msg_send![notification_center,
-            addObserver: handler
-            selector: sel!(applicationWillTerminate:)
-            name: NSString::alloc(nil).init_str("NSApplicationWillTerminateNotification")
-            object: nil
-        ];
-
-        // 7. Run the main application loop
-        app.run();
     }
+
+    // 7. Run the main application loop
+    app.run();
 }
