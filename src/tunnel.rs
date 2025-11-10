@@ -10,9 +10,9 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use log::{debug, error, info, warn};
 use objc2_app_kit::NSMenuItem;
 use objc2_foundation::NSString;
-use log::{debug, error, info, warn};
 
 use crate::config::Config;
 

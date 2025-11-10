@@ -4,10 +4,10 @@
 // that receives menu events. We keep the function references the same, but route
 // the logic to `toggleTunnel` in `tunnel.rs`.
 
-use objc2::{define_class, rc::Retained, runtime::AnyObject, sel, ClassType, MainThreadOnly};
-use objc2_app_kit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
-use objc2_foundation::{ns_string, MainThreadMarker, NSObject, NSObjectProtocol, NSString};
 use log::{error, warn};
+use objc2::{ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject, sel};
+use objc2_app_kit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
+use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, ns_string};
 
 use crate::config::Config;
 
@@ -112,7 +112,12 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
 }
 
 /// Helper to create a single NSMenuItem for toggling a tunnel.
-fn create_menu_item(handler: &MenuHandler, title: &str, command_id: &str, mtm: MainThreadMarker) -> Retained<NSMenuItem> {
+fn create_menu_item(
+    handler: &MenuHandler,
+    title: &str,
+    command_id: &str,
+    mtm: MainThreadMarker,
+) -> Retained<NSMenuItem> {
     unsafe {
         let title_ns = NSString::from_str(title);
         let item = NSMenuItem::initWithTitle_action_keyEquivalent(

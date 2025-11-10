@@ -5,9 +5,9 @@
 // look up the instance of `App` easily. Alternatively, you can store the `App` reference
 // inside the Objective-C handler class.
 
+use log::info;
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use objc2_foundation::{MainThreadMarker, NSNotificationCenter};
-use log::info;
 use std::sync::OnceLock;
 
 mod app;
@@ -57,7 +57,8 @@ fn main() {
     // 6. Observe application termination
     let notification_center = NSNotificationCenter::defaultCenter();
     unsafe {
-        let notification_name = objc2_foundation::NSString::from_str("NSApplicationWillTerminateNotification");
+        let notification_name =
+            objc2_foundation::NSString::from_str("NSApplicationWillTerminateNotification");
         notification_center.addObserver_selector_name_object(
             &handler,
             objc2::sel!(applicationWillTerminate:),

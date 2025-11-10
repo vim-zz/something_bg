@@ -3,9 +3,9 @@
 // Defines the `App` structure holding shared state (commands, active tunnels).
 // Also provides methods for cleanup or other global operations.
 
+use log::{error, info, warn};
 use objc2::rc::Retained;
 use objc2_app_kit::NSStatusItem;
-use log::{error, info, warn};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
