@@ -60,6 +60,9 @@ Each tunnel configuration includes:
 - `args`: Arguments for the command
 - `kill_command`: Command to stop the tunnel
 - `kill_args`: Arguments for the kill command
+- `separator_after` (optional): Boolean to add a separator line after this menu item
+- `group_header` (optional): String to display as a non-clickable section header before this item
+- `group_icon` (optional): SF Symbol name to display with the group header (e.g., "sf:cylinder.fill")
 
 The configuration also includes a global `path` setting that defines the PATH environment variable used when executing commands. This allows customization of where the system looks for executables.
 
@@ -75,6 +78,28 @@ The app uses a TOML-based configuration system:
 4. **User Customization**: Users can modify `~/.config/something_bg/config.toml` to add/remove tunnels
 
 The configuration format supports any command-line tool that can be started and stopped, not just SSH tunnels.
+
+### Menu Organization Features
+
+The app supports organizing menu items with visual enhancements:
+
+1. **Group Headers**: Non-clickable section headers with SF Symbol icons
+   - Implemented in `menu.rs` via `create_header_item()` function
+   - Uses `NSMenuItem` with `setEnabled(false)` for disabled state
+   - Loads SF Symbols via `imageWithSystemSymbolName_accessibilityDescription()`
+   - Headers are optional per-item (not per-section), allowing flexible grouping
+   - Built with objc2 for type-safe Objective-C interop
+
+2. **Menu Separators**: Visual dividers between menu items
+   - Implemented using `NSMenuItem::separatorItem()`
+   - Controlled by `separator_after` field in tunnel config
+   - Added automatically after items where `separator_after = true`
+
+3. **Icon Loading**: Supports SF Symbols for group headers
+   - Icon loader function `load_icon()` handles SF Symbol format: "sf:symbol.name"
+   - Falls back gracefully if symbol fails to load
+   - Icons are sized to 16x16 for menu items
+   - Uses objc2's type-safe `Retained<NSImage>` for memory management
 
 ### Icon System
 
@@ -101,4 +126,6 @@ Uses a patched version of `objc` crate from a third-party fork for compatibility
 - Tunnels are cleaned up automatically on app termination
 - Status item icon updates based on active tunnel state
 - PATH is extended to include Homebrew binaries for command execution
-- Uses NSAutoreleasePool for proper memory management
+- Uses objc2 for type-safe Objective-C interop (migrated from legacy objc crate)
+- All optional fields (`separator_after`, `group_header`, `group_icon`) use `#[serde(default)]` for backward compatibility
+- TOML special characters (like backslash) must be escaped with `\\` in configuration strings

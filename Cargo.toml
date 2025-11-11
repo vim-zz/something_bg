@@ -1,6 +1,6 @@
 [package]
 name = "something_bg"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2024"
 
 # Mac App Bundle configuration for the `cargo bundle` command

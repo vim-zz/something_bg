@@ -11,6 +11,8 @@ A macOS menu bar application for managing background processes like SSH tunnels,
 - Automatic process cleanup on app termination
 - Custom PATH environment support
 - Native macOS integration
+- Group headers with SF Symbol icons for organizing menu items
+- Visual separators between menu sections
 
 ## Installation
 
@@ -53,20 +55,32 @@ path = "/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin"
 [tunnels]
 
 # SSH tunnel with port forwarding
-[tunnels.database]
-name = "Database Tunnel"
+[tunnels.database-prod]
+name = "PROD"
 command = "ssh"
 args = ["-N", "-L", "5432:localhost:5432", "user@server.com"]
 kill_command = "pkill"
 kill_args = ["-f", "user@server.com"]
+group_header = "DATABASE"           # Optional: Section header
+group_icon = "sf:cylinder.fill"     # Optional: SF Symbol icon
+
+[tunnels.database-dev]
+name = "DEV"
+command = "ssh"
+args = ["-N", "-L", "5432:localhost:5432", "dev@server.com"]
+kill_command = "pkill"
+kill_args = ["-f", "dev@server.com"]
+separator_after = true              # Optional: Add separator after this item
 
 # Kubernetes port forwarding
 [tunnels.k8s-service]
-name = "K8s Service"
+name = "Service"
 command = "kubectl"
 args = ["port-forward", "svc/my-service", "8080:8080"]
 kill_command = "pkill"
 kill_args = ["-f", "svc/my-service"]
+group_header = "KUBERNETES"
+group_icon = "sf:cloud.fill"
 
 # Development server
 [tunnels.dev-server]
@@ -75,12 +89,34 @@ command = "npm"
 args = ["run", "dev"]
 kill_command = "pkill"
 kill_args = ["-f", "npm.*dev"]
+group_header = "DEVELOPMENT"
+group_icon = "sf:hammer.fill"
+separator_after = true
 ```
 
-Each tunnel needs:
+### Configuration Fields
+
+Each tunnel requires:
 - `name`: Display name in the menu
 - `command` + `args`: Command to start the service
 - `kill_command` + `kill_args`: Command to stop the service
+
+Optional fields:
+- `group_header`: Section title (e.g., "DATABASE", "REDIS")
+- `group_icon`: SF Symbol name for the header (e.g., "sf:cylinder.fill")
+- `separator_after`: Add a visual separator line after this item
+
+### SF Symbols
+
+Group icons use SF Symbols (built-in macOS icons). Common symbols:
+- `sf:cylinder.fill` - Database
+- `sf:shippingbox.fill` - Cache/Redis
+- `sf:chart.bar.fill` - Analytics
+- `sf:cloud.fill` - Cloud/Kubernetes
+- `sf:server.rack` - Server
+- `sf:network` - Network
+
+Browse all symbols at [developer.apple.com/sf-symbols](https://developer.apple.com/sf-symbols/) or use the SF Symbols app.
 
 Restart the app to pick up configuration changes.
 

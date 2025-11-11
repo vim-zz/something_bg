@@ -25,6 +25,12 @@ pub struct TunnelConfig {
     pub args: Vec<String>,
     pub kill_command: String,
     pub kill_args: Vec<String>,
+    #[serde(default)]
+    pub separator_after: Option<bool>,
+    #[serde(default)]
+    pub group_header: Option<String>,
+    #[serde(default)]
+    pub group_icon: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -149,6 +155,9 @@ impl Default for Config {
                     ],
                     kill_command: "pkill".to_string(),
                     kill_args: vec!["-f".to_string(), "user@example.com".to_string()],
+                    separator_after: None,
+                    group_header: None,
+                    group_icon: None,
                 },
             ),
             // Example Kubernetes port forward
@@ -166,6 +175,9 @@ impl Default for Config {
                     ],
                     kill_command: "pkill".to_string(),
                     kill_args: vec!["-f".to_string(), "svc/my-service".to_string()],
+                    separator_after: None,
+                    group_header: None,
+                    group_icon: None,
                 },
             ),
             // Docker environment management
@@ -177,6 +189,9 @@ impl Default for Config {
                     args: vec!["start".to_string()],
                     kill_command: "colima".to_string(),
                     kill_args: vec!["stop".to_string()],
+                    separator_after: None,
+                    group_header: None,
+                    group_icon: None,
                 },
             ),
         ];
