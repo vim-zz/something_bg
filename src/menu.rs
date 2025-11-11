@@ -6,10 +6,10 @@
 
 use log::{error, warn};
 use objc2::{ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject, sel};
-use objc2_app_kit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
+use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
 use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, ns_string};
 
-use crate::config::Config;
+use crate::config::{Config, TunnelConfig};
 
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
@@ -71,8 +71,20 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
 
         // Create menu items from configuration
         for (key, tunnel_config) in config.tunnels.iter() {
-            let menu_item = create_menu_item(handler, &tunnel_config.name, key, mtm);
+            // Add group header if specified
+            if let Some(group_header) = &tunnel_config.group_header {
+                let header_item = create_header_item(group_header, tunnel_config.group_icon.as_deref(), mtm);
+                menu.addItem(&header_item);
+            }
+
+            let menu_item = create_menu_item(handler, tunnel_config, key, mtm);
             menu.addItem(&menu_item);
+
+            // Add separator after this item if configured
+            if tunnel_config.separator_after.unwrap_or(false) {
+                let separator = NSMenuItem::separatorItem(mtm);
+                menu.addItem(&separator);
+            }
         }
 
         // Add Separator before About
@@ -111,15 +123,40 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
     }
 }
 
+/// Helper to create a header menu item (non-clickable section title)
+fn create_header_item(title: &str, icon_spec: Option<&str>, mtm: MainThreadMarker) -> Retained<NSMenuItem> {
+    unsafe {
+        let title_ns = NSString::from_str(title);
+        let item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &title_ns,
+            None, // No action - non-clickable
+            ns_string!(""),
+        );
+
+        // Make it disabled (non-clickable) and use as section header
+        item.setEnabled(false);
+
+        // Load and set icon if specified
+        if let Some(icon) = icon_spec {
+            if let Some(image) = load_icon(icon) {
+                item.setImage(Some(&image));
+            }
+        }
+
+        item
+    }
+}
+
 /// Helper to create a single NSMenuItem for toggling a tunnel.
 fn create_menu_item(
     handler: &MenuHandler,
-    title: &str,
+    tunnel_config: &TunnelConfig,
     command_id: &str,
     mtm: MainThreadMarker,
 ) -> Retained<NSMenuItem> {
     unsafe {
-        let title_ns = NSString::from_str(title);
+        let title_ns = NSString::from_str(&tunnel_config.name);
         let item = NSMenuItem::initWithTitle_action_keyEquivalent(
             mtm.alloc(),
             &title_ns,
@@ -133,6 +170,29 @@ fn create_menu_item(
         item.setState(0); // NSOffState = 0
 
         item
+    }
+}
+
+/// Load an icon from an SF Symbol.
+/// SF Symbol format: "sf:symbol.name"
+fn load_icon(icon_spec: &str) -> Option<Retained<NSImage>> {
+    if icon_spec.starts_with("sf:") {
+        // Load SF Symbol (macOS 11+)
+        let symbol_name = &icon_spec[3..];
+        let symbol_ns = NSString::from_str(symbol_name);
+
+        let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(&symbol_ns, None);
+        if let Some(img) = image {
+            // Set image size to 16x16 for menu items
+            img.setSize(objc2_foundation::NSSize { width: 16.0, height: 16.0 });
+            Some(img)
+        } else {
+            warn!("Failed to load SF Symbol: {}", symbol_name);
+            None
+        }
+    } else {
+        warn!("Unsupported icon format: {}. Use 'sf:symbol.name'", icon_spec);
+        None
     }
 }
 

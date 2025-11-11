@@ -5,6 +5,13 @@ All notable changes to Something in the Background will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2025-01-11
+
+### Added
+- Optional group headers with SF Symbol icons for organizing menu items (`group_header`, `group_icon`)
+- Optional separators between menu items (`separator_after`)
+- All fields are backward compatible - existing configs continue to work unchanged
+
 ## [1.0.3] - 2025-11-10
 
 ### Changed
