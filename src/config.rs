@@ -216,3 +216,36 @@ fn get_config_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
     Ok(config_path)
 }
+
+/// Handler to open the config folder in Finder
+pub fn open_config_folder_handler() {
+    use log::{error, info};
+    use std::process::Command;
+
+    match get_config_path() {
+        Ok(config_path) => {
+            // Ensure the config file exists by loading (which creates it if needed)
+            if let Err(e) = Config::load() {
+                error!("Failed to ensure config exists: {}", e);
+                return;
+            }
+
+            // Use 'open -R' to reveal the file in Finder
+            match Command::new("open")
+                .arg("-R")
+                .arg(&config_path)
+                .spawn()
+            {
+                Ok(_) => {
+                    info!("Opened config folder in Finder");
+                }
+                Err(e) => {
+                    error!("Failed to open config folder: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to get config path: {}", e);
+        }
+    }
+}
