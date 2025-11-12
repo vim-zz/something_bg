@@ -41,6 +41,11 @@ define_class!(
         fn application_will_terminate(&self, _notification: &NSObject) {
             crate::application_will_terminate_handler();
         }
+
+        #[unsafe(method(openConfigFolder:))]
+        fn open_config_folder(&self, _item: &NSMenuItem) {
+            crate::config::open_config_folder_handler();
+        }
     }
 );
 
@@ -87,9 +92,19 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
             }
         }
 
-        // Add Separator before About
+        // Add Separator before Open Config Folder
         let separator1 = NSMenuItem::separatorItem(mtm);
         menu.addItem(&separator1);
+
+        // Add "Open Config Folder" item
+        let config_folder_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            ns_string!("Open Config Folder"),
+            Some(sel!(openConfigFolder:)),
+            ns_string!(""),
+        );
+        config_folder_item.setTarget(Some(handler as &AnyObject));
+        menu.addItem(&config_folder_item);
 
         // Add About item
         let about_title = NSString::from_str(&format!(
