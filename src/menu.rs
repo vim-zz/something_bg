@@ -220,7 +220,7 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
         config_folder_item.setTarget(Some(handler as &AnyObject));
         menu.addItem(&config_folder_item);
 
-        // Add About item
+        // Add About item (disabled, informational only)
         let about_title = NSString::from_str(&format!(
             "Something in the Background (v{})",
             get_app_version()
@@ -228,15 +228,11 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
         let about_item = NSMenuItem::initWithTitle_action_keyEquivalent(
             mtm.alloc(),
             &about_title,
-            Some(sel!(orderFrontStandardAboutPanel:)),
+            None, // No action - just informational
             ns_string!(""),
         );
-        about_item.setTarget(Some(handler as &AnyObject));
+        about_item.setEnabled(false);
         menu.addItem(&about_item);
-
-        // Add Separator before Quit
-        let separator2 = NSMenuItem::separatorItem(mtm);
-        menu.addItem(&separator2);
 
         // Quit menu item
         let quit_item = NSMenuItem::initWithTitle_action_keyEquivalent(
