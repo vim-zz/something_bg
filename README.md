@@ -1,20 +1,17 @@
 # Something in the Background
 
-![Menu Bar Screenshot](something_bg.png)
+A super light macOS menu bar application for managing background processes like SSH tunnels, port forwarding, and development services. Everything is configured via a simple TOML file.
 
-A macOS menu bar application for managing background processes like SSH tunnels, port forwarding, and development services. Everything is configured via a simple TOML file.
+<img align="right" src="something_bg.png" alt="Menu Bar Screenshot" width="400">
 
 ## Features
 
-- Toggle any CLI tool on/off from the menu bar
-- **Scheduled tasks with cron syntax** - run commands periodically in the background
-- TOML based configuration
-- Automatic process cleanup on app termination
+- Toggle any CLI task on/off from the menu bar
+- Run scheduled tasks with cron syntax in the background
+- Custom commands based on TOML configuration
 - Custom PATH environment support
 - Native macOS integration
 - Group headers with SF Symbol icons for organizing menu items
-- Visual separators between menu sections
-- Real-time task status with last run timestamps
 
 ## Installation
 
