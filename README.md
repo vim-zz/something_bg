@@ -1,18 +1,20 @@
 # Something in the Background
 
-![Menu Bar Screenshot](menubar.webp)
+![Menu Bar Screenshot](something_bg.png)
 
 A macOS menu bar application for managing background processes like SSH tunnels, port forwarding, and development services. Everything is configured via a simple TOML file.
 
 ## Features
 
 - Toggle any CLI tool on/off from the menu bar
+- **Scheduled tasks with cron syntax** - run commands periodically in the background
 - TOML based configuration
 - Automatic process cleanup on app termination
 - Custom PATH environment support
 - Native macOS integration
 - Group headers with SF Symbol icons for organizing menu items
 - Visual separators between menu sections
+- Real-time task status with last run timestamps
 
 ## Installation
 
@@ -92,19 +94,68 @@ kill_args = ["-f", "npm.*dev"]
 group_header = "DEVELOPMENT"
 group_icon = "sf:hammer.fill"
 separator_after = true
+
+[schedules.daily-backup]
+name = "Daily Backup"
+command = "/usr/local/bin/backup.sh"
+args = []
+cron_schedule = "0 6 * * *"          # Every day at 6:00 AM
+group_header = "SCHEDULED TASKS"
+group_icon = "sf:clock.fill"
 ```
 
 ### Configuration Fields
 
-Each tunnel requires:
+**For Tunnels:**
 - `name`: Display name in the menu
 - `command` + `args`: Command to start the service
 - `kill_command` + `kill_args`: Command to stop the service
 
-Optional fields:
-- `group_header`: Section title (e.g., "DATABASE", "REDIS")
-- `group_icon`: SF Symbol name for the header (e.g., "sf:cylinder.fill")
+**For Scheduled Tasks:**
+- `name`: Display name in the menu
+- `command` + `args`: Command to execute
+- `cron_schedule`: Cron expression for scheduling (e.g., "0 6 * * *")
+
+**Optional fields (both types):**
+- `group_header`: Section title (e.g., "DATABASE", "SCHEDULED TASKS")
+- `group_icon`: SF Symbol name for the header (e.g., "sf:cylinder.fill", "sf:clock.fill")
 - `separator_after`: Add a visual separator line after this item
+
+### Scheduled Tasks
+
+Schedule commands to run automatically using cron syntax. Perfect for backups, health checks, or recurring maintenance tasks.
+
+```toml
+[schedules.daily-backup]
+name = "Daily Backup"
+command = "/usr/local/bin/backup.sh"
+args = []
+cron_schedule = "0 6 * * *"          # Every day at 6:00 AM
+group_header = "SCHEDULED TASKS"
+group_icon = "sf:clock.fill"
+
+[schedules.hourly-health-check]
+name = "API Health Check"
+command = "curl"
+args = ["-f", "https://api.example.com/health"]
+cron_schedule = "0 * * * *"          # Every hour
+
+[schedules.weekly-cleanup]
+name = "Weekly Cleanup"
+command = "/usr/local/bin/cleanup.sh"
+args = ["--deep"]
+cron_schedule = "0 3 * * 0"          # Every Sunday at 3:00 AM
+separator_after = true
+```
+
+**Cron Schedule Format:** `minute hour day_of_month month day_of_week`
+
+Common examples:
+- `0 * * * *` - Every hour
+- `*/15 * * * *` - Every 15 minutes
+- `0 6 * * *` - Every day at 6:00 AM
+- `0 9 * * 1` - Every Monday at 9:00 AM
+- `0 0 1 * *` - First day of every month at midnight
 
 ### SF Symbols
 
@@ -115,6 +166,8 @@ Group icons use SF Symbols (built-in macOS icons). Common symbols:
 - `sf:cloud.fill` - Cloud/Kubernetes
 - `sf:server.rack` - Server
 - `sf:network` - Network
+- `sf:clock.fill` - Scheduled tasks
+- `sf:calendar` - Time-based operations
 
 Browse all symbols at [developer.apple.com/sf-symbols](https://developer.apple.com/sf-symbols/) or use the SF Symbols app.
 

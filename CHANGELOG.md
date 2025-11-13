@@ -5,6 +5,36 @@ All notable changes to Something in the Background will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-01-13
+
+### Added
+- **Scheduled Tasks** - Run commands automatically based on cron schedules
+  - New `[schedules]` configuration section for defining periodic tasks
+  - Full cron syntax support (minute, hour, day, month, weekday)
+  - Human-readable schedule descriptions in menu (e.g., "Every day at 6:00")
+  - Last run timestamps displayed in local timezone with 24-hour format
+  - "Run Now" button in submenu to manually trigger tasks
+  - Automatic background execution - checks every 30 seconds for due tasks
+  - Real-time menu updates showing current task status
+- New dependencies: `croner` (cron parsing), `chrono` (datetime), `serde_json` (state management)
+- Scheduled tasks display in submenus with:
+  - Schedule information (grayed out, informational)
+  - Last run time (grayed out, auto-updating)
+  - Manual "Run Now" action button
+
+### Changed
+- Menu items now update automatically when opened via `NSMenuDelegate` implementation
+- Task state persisted in-memory with thread-safe access
+- Scheduler runs in background thread, automatically starts on app launch
+
+### Technical Details
+- New `scheduler.rs` module with `TaskScheduler` and `ScheduledTask` types
+- Uses `croner` v2.0 for robust cron expression parsing and scheduling
+- Integrates `chrono` for timezone-aware datetime handling
+- Background scheduler thread checks tasks every 30 seconds
+- Graceful cleanup - scheduler stops when app terminates
+- Menu delegate pattern for dynamic content updates without full menu rebuild
+
 ## [1.1.0] - 2025-01-12
 
 ### Added

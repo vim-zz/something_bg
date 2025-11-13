@@ -14,6 +14,7 @@ mod app;
 mod config;
 mod logger;
 mod menu;
+mod scheduler;
 mod tunnel;
 
 use app::App;

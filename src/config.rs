@@ -15,6 +15,7 @@ use crate::tunnel::TunnelCommand;
 #[derive(Serialize)]
 struct ConfigForSerialization {
     tunnels: HashMap<String, TunnelConfig>,
+    schedules: HashMap<String, ScheduledTaskConfig>,
     path: Option<String>,
 }
 
@@ -33,9 +34,25 @@ pub struct TunnelConfig {
     pub group_icon: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledTaskConfig {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub cron_schedule: String,
+    #[serde(default)]
+    pub separator_after: Option<bool>,
+    #[serde(default)]
+    pub group_header: Option<String>,
+    #[serde(default)]
+    pub group_icon: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub tunnels: Vec<(String, TunnelConfig)>,
+    #[serde(default)]
+    pub schedules: Vec<(String, ScheduledTaskConfig)>,
     pub path: Option<String>,
 }
 
@@ -86,7 +103,23 @@ impl Config {
             }
         }
 
-        Ok(Config { tunnels, path })
+        let mut schedules = Vec::new();
+
+        if let Some(tasks_value) = table.get("schedules") {
+            if let Some(tasks_table) = tasks_value.as_table() {
+                // With preserve_order feature, this iteration maintains order
+                for (key, value) in tasks_table {
+                    let task_config: ScheduledTaskConfig = value.clone().try_into()?;
+                    schedules.push((key.clone(), task_config));
+                }
+            }
+        }
+
+        Ok(Config {
+            tunnels,
+            schedules,
+            path,
+        })
     }
 
     /// Save configuration to the default location
@@ -101,8 +134,11 @@ impl Config {
         // Convert Vec back to HashMap for serialization
         let tunnels_map: std::collections::HashMap<String, TunnelConfig> =
             self.tunnels.iter().cloned().collect();
+        let schedules_map: std::collections::HashMap<String, ScheduledTaskConfig> =
+            self.schedules.iter().cloned().collect();
         let serializable_config = ConfigForSerialization {
             tunnels: tunnels_map,
+            schedules: schedules_map,
             path: self.path.clone(),
         };
         let content = toml::to_string_pretty(&serializable_config)?;
@@ -196,8 +232,25 @@ impl Default for Config {
             ),
         ];
 
+        let schedules = vec![
+            // Example scheduled task - daily backup at 6:00 AM
+            (
+                "daily-backup".to_string(),
+                ScheduledTaskConfig {
+                    name: "Daily Backup".to_string(),
+                    command: "echo".to_string(),
+                    args: vec!["Running daily backup...".to_string()],
+                    cron_schedule: "0 6 * * *".to_string(),
+                    separator_after: None,
+                    group_header: Some("Scheduled Tasks".to_string()),
+                    group_icon: Some("sf:clock.fill".to_string()),
+                },
+            ),
+        ];
+
         Self {
             tunnels,
+            schedules,
             path: Some(
                 "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/opt/homebrew/bin".to_string(),
             ),
@@ -231,11 +284,7 @@ pub fn open_config_folder_handler() {
             }
 
             // Use 'open -R' to reveal the file in Finder
-            match Command::new("open")
-                .arg("-R")
-                .arg(&config_path)
-                .spawn()
-            {
+            match Command::new("open").arg("-R").arg(&config_path).spawn() {
                 Ok(_) => {
                     info!("Opened config folder in Finder");
                 }

@@ -1,6 +1,6 @@
 [package]
 name = "something_bg"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 
 # Mac App Bundle configuration for the `cargo bundle` command
@@ -21,6 +21,9 @@ log = "0.4"
 oslog = "0.2"
 toml = { version = "0.8", features = ["preserve_order"] }
 serde = { version = "1.0", features = ["derive"] }
+croner = "2.0"
+chrono = "0.4"
+serde_json = "1.0"
 
 [profile.release]
 strip = true

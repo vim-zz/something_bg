@@ -5,11 +5,14 @@
 // the logic to `toggleTunnel` in `tunnel.rs`.
 
 use log::{error, warn};
-use objc2::{ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject, sel};
-use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
+use objc2::{
+    ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject,
+    runtime::ProtocolObject, sel,
+};
+use objc2_app_kit::{NSImage, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar, NSStatusItem};
 use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, ns_string};
 
-use crate::config::{Config, TunnelConfig};
+use crate::config::{Config, ScheduledTaskConfig, TunnelConfig};
 
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
@@ -31,6 +34,13 @@ define_class!(
 
     unsafe impl NSObjectProtocol for MenuHandler {}
 
+    unsafe impl NSMenuDelegate for MenuHandler {
+        #[unsafe(method(menuNeedsUpdate:))]
+        fn menu_needs_update(&self, menu: &NSMenu) {
+            update_scheduled_task_items(menu);
+        }
+    }
+
     impl MenuHandler {
         #[unsafe(method(toggleTunnel:))]
         fn toggle_tunnel(&self, item: &NSMenuItem) {
@@ -46,6 +56,11 @@ define_class!(
         fn open_config_folder(&self, _item: &NSMenuItem) {
             crate::config::open_config_folder_handler();
         }
+
+        #[unsafe(method(runScheduledTask:))]
+        fn run_scheduled_task(&self, item: &NSMenuItem) {
+            run_scheduled_task_handler(item);
+        }
     }
 );
 
@@ -59,10 +74,83 @@ impl MenuHandler {
     }
 }
 
+/// Handler function for manually running a scheduled task
+fn run_scheduled_task_handler(item: &NSMenuItem) {
+    use log::info;
+
+    if let Some(represented_obj) = item.representedObject() {
+        let task_id_any: &AnyObject = unsafe { std::mem::transmute(represented_obj) };
+        let task_id: &NSString = unsafe { std::mem::transmute(task_id_any) };
+        let task_id_str = task_id.to_string();
+
+        info!("Manually triggering scheduled task: {}", task_id_str);
+
+        if let Some(app) = crate::GLOBAL_APP.get() {
+            if let Err(e) = app.task_scheduler.run_task_now(&task_id_str) {
+                error!("Failed to run task '{}': {}", task_id_str, e);
+            }
+            // Note: The menu will update automatically next time it's opened
+            // via the menuNeedsUpdate delegate method
+        }
+    }
+}
+
+/// Update scheduled task items in the menu to show current "Last run" times
+fn update_scheduled_task_items(menu: &NSMenu) {
+    use crate::scheduler::format_last_run;
+
+    // Get the app to access the scheduler
+    let Some(app) = crate::GLOBAL_APP.get() else {
+        return;
+    };
+
+    // Iterate through menu items to find scheduled tasks (items with submenus)
+    let num_items = menu.numberOfItems();
+    for i in 0..num_items {
+        if let Some(item) = menu.itemAtIndex(i) {
+            // Check if this item has a submenu (scheduled tasks have submenus)
+            if let Some(submenu) = item.submenu() {
+                // The submenu should have items in this order:
+                // 0: Schedule: ...
+                // 1: Last run: ...
+                // 2: Separator
+                // 3: Run Now
+
+                if submenu.numberOfItems() >= 2 {
+                    // Try to get the task ID from the "Run Now" item (index 3)
+                    if let Some(run_now_item) = submenu.itemAtIndex(3) {
+                        if let Some(represented_obj) = run_now_item.representedObject() {
+                            let task_id_any: &AnyObject =
+                                unsafe { std::mem::transmute(represented_obj) };
+                            let task_id: &NSString = unsafe { std::mem::transmute(task_id_any) };
+                            let task_id_str = task_id.to_string();
+
+                            // Get updated task info from scheduler
+                            if let Some(task) = app.task_scheduler.get_task(&task_id_str) {
+                                // Update "Last run" item (index 1)
+                                if let Some(last_run_item) = submenu.itemAtIndex(1) {
+                                    let last_run_text = format_last_run(&task.last_run);
+                                    let new_title =
+                                        NSString::from_str(&format!("Last run: {}", last_run_text));
+                                    last_run_item.setTitle(&new_title);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Create the NSMenu for the status item.
 pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSMenu> {
     unsafe {
         let menu = NSMenu::new(mtm);
+
+        // Set the delegate so menuNeedsUpdate gets called
+        let delegate = ProtocolObject::from_ref(handler);
+        menu.setDelegate(Some(delegate));
 
         // Load configuration and create menu items dynamically
         let config = match Config::load() {
@@ -78,7 +166,8 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
         for (key, tunnel_config) in config.tunnels.iter() {
             // Add group header if specified
             if let Some(group_header) = &tunnel_config.group_header {
-                let header_item = create_header_item(group_header, tunnel_config.group_icon.as_deref(), mtm);
+                let header_item =
+                    create_header_item(group_header, tunnel_config.group_icon.as_deref(), mtm);
                 menu.addItem(&header_item);
             }
 
@@ -89,6 +178,31 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
             if tunnel_config.separator_after.unwrap_or(false) {
                 let separator = NSMenuItem::separatorItem(mtm);
                 menu.addItem(&separator);
+            }
+        }
+
+        // Add scheduled tasks section
+        if !config.schedules.is_empty() {
+            let separator = NSMenuItem::separatorItem(mtm);
+            menu.addItem(&separator);
+
+            for (key, task_config) in config.schedules.iter() {
+                // Add group header if specified
+                if let Some(group_header) = &task_config.group_header {
+                    let header_item =
+                        create_header_item(group_header, task_config.group_icon.as_deref(), mtm);
+                    menu.addItem(&header_item);
+                }
+
+                let scheduled_menu_item =
+                    create_scheduled_task_item(handler, task_config, key, mtm);
+                menu.addItem(&scheduled_menu_item);
+
+                // Add separator after this item if configured
+                if task_config.separator_after.unwrap_or(false) {
+                    let separator = NSMenuItem::separatorItem(mtm);
+                    menu.addItem(&separator);
+                }
             }
         }
 
@@ -139,7 +253,11 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
 }
 
 /// Helper to create a header menu item (non-clickable section title)
-fn create_header_item(title: &str, icon_spec: Option<&str>, mtm: MainThreadMarker) -> Retained<NSMenuItem> {
+fn create_header_item(
+    title: &str,
+    icon_spec: Option<&str>,
+    mtm: MainThreadMarker,
+) -> Retained<NSMenuItem> {
     unsafe {
         let title_ns = NSString::from_str(title);
         let item = NSMenuItem::initWithTitle_action_keyEquivalent(
@@ -188,6 +306,93 @@ fn create_menu_item(
     }
 }
 
+/// Helper to create a menu item for a scheduled task with submenu
+fn create_scheduled_task_item(
+    handler: &MenuHandler,
+    task_config: &ScheduledTaskConfig,
+    task_id: &str,
+    mtm: MainThreadMarker,
+) -> Retained<NSMenuItem> {
+    unsafe {
+        // Main menu item with task name
+        let title_ns = NSString::from_str(&task_config.name);
+        let item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &title_ns,
+            None, // No direct action
+            ns_string!(""),
+        );
+
+        // Create submenu
+        let submenu = NSMenu::new(mtm);
+
+        // Get task info from scheduler if available
+        let (schedule_text, last_run_text) = if let Some(app) = crate::GLOBAL_APP.get() {
+            let schedule = if let Some(task) = app.task_scheduler.get_task(task_id) {
+                crate::scheduler::cron_to_human_readable(&task.cron_schedule)
+            } else {
+                crate::scheduler::cron_to_human_readable(&task_config.cron_schedule)
+            };
+
+            let last_run = if let Some(task) = app.task_scheduler.get_task(task_id) {
+                crate::scheduler::format_last_run(&task.last_run)
+            } else {
+                "Never".to_string()
+            };
+
+            (schedule, last_run)
+        } else {
+            (
+                crate::scheduler::cron_to_human_readable(&task_config.cron_schedule),
+                "Never".to_string(),
+            )
+        };
+
+        // Add schedule info (disabled/grayed out)
+        let schedule_title = NSString::from_str(&format!("Schedule: {}", schedule_text));
+        let schedule_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &schedule_title,
+            None,
+            ns_string!(""),
+        );
+        schedule_item.setEnabled(false);
+        submenu.addItem(&schedule_item);
+
+        // Add last run info (disabled/grayed out)
+        let last_run_title = NSString::from_str(&format!("Last run: {}", last_run_text));
+        let last_run_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &last_run_title,
+            None,
+            ns_string!(""),
+        );
+        last_run_item.setEnabled(false);
+        submenu.addItem(&last_run_item);
+
+        // Add separator
+        let separator = NSMenuItem::separatorItem(mtm);
+        submenu.addItem(&separator);
+
+        // Add "Run Now" action
+        let run_now_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            ns_string!("Run Now"),
+            Some(sel!(runScheduledTask:)),
+            ns_string!(""),
+        );
+        let task_id_ns = NSString::from_str(task_id);
+        run_now_item.setRepresentedObject(Some(&task_id_ns));
+        run_now_item.setTarget(Some(handler as &AnyObject));
+        submenu.addItem(&run_now_item);
+
+        // Attach submenu to main item
+        item.setSubmenu(Some(&submenu));
+
+        item
+    }
+}
+
 /// Load an icon from an SF Symbol.
 /// SF Symbol format: "sf:symbol.name"
 fn load_icon(icon_spec: &str) -> Option<Retained<NSImage>> {
@@ -199,14 +404,20 @@ fn load_icon(icon_spec: &str) -> Option<Retained<NSImage>> {
         let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(&symbol_ns, None);
         if let Some(img) = image {
             // Set image size to 16x16 for menu items
-            img.setSize(objc2_foundation::NSSize { width: 16.0, height: 16.0 });
+            img.setSize(objc2_foundation::NSSize {
+                width: 16.0,
+                height: 16.0,
+            });
             Some(img)
         } else {
             warn!("Failed to load SF Symbol: {}", symbol_name);
             None
         }
     } else {
-        warn!("Unsupported icon format: {}. Use 'sf:symbol.name'", icon_spec);
+        warn!(
+            "Unsupported icon format: {}. Use 'sf:symbol.name'",
+            icon_spec
+        );
         None
     }
 }

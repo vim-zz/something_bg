@@ -1,5 +1,168 @@
 # Release Notes - Something in the Background
 
+## v1.2.0
+
+**Release Date:** January 13, 2025
+
+### 🎯 Scheduled Tasks - Automate Your Workflows
+
+We're excited to introduce **Scheduled Tasks** - the ability to run commands automatically based on cron schedules directly from your menu bar!
+
+#### What's New
+
+**Cron-Based Scheduling**
+- Schedule any command to run periodically using standard cron syntax
+- Perfect for backups, health checks, data syncs, and maintenance tasks
+- Runs in the background - no need to keep terminal windows open
+
+**Smart Menu Integration**
+- Each scheduled task appears with a submenu showing:
+  - **Schedule**: Human-readable description (e.g., "Every day at 6:00")
+  - **Last run**: Timestamp in your local timezone (24-hour format)
+  - **Run Now**: Button to manually trigger the task immediately
+- Real-time updates - last run times refresh automatically when you open the menu
+
+**Easy Configuration**
+Simply add a `[schedules]` section to your `config.toml`:
+
+```toml
+[schedules.daily-backup]
+name = "Daily Backup"
+command = "/usr/local/bin/backup.sh"
+args = []
+cron_schedule = "0 6 * * *"          # Every day at 6:00 AM
+group_header = "SCHEDULED TASKS"
+group_icon = "sf:clock.fill"
+
+[schedules.hourly-health-check]
+name = "API Health Check"
+command = "curl"
+args = ["-f", "https://api.example.com/health"]
+cron_schedule = "0 * * * *"          # Every hour
+```
+
+#### Common Cron Examples
+
+- `0 * * * *` - Every hour
+- `*/15 * * * *` - Every 15 minutes
+- `0 6 * * *` - Every day at 6:00 AM
+- `0 9 * * 1` - Every Monday at 9:00 AM
+- `0 0 1 * *` - First day of every month at midnight
+
+#### Use Cases
+
+**Development Workflows**
+- Hourly database backups during development
+- Periodic cache clearing
+- Scheduled test runs
+
+**System Maintenance**
+- Daily log rotation
+- Weekly cleanup scripts
+- Periodic health checks
+
+**Data Operations**
+- Hourly data syncs
+- Scheduled report generation
+- Periodic API polling
+
+#### Technical Highlights
+
+- **Robust Parsing**: Uses `croner` library for reliable cron expression handling
+- **Timezone-Aware**: All timestamps displayed in your local timezone
+- **Thread-Safe**: Background scheduler runs independently without blocking UI
+- **Automatic Cleanup**: Scheduler stops gracefully when app quits
+- **Efficient**: Checks for due tasks every 30 seconds
+
+### 🔄 What's Changed
+
+- Menu items now update dynamically when opened (via `NSMenuDelegate`)
+- New dependencies: `croner`, `chrono`, `serde_json`
+- Enhanced menu system with submenu support for scheduled tasks
+
+### 🚀 Upgrade Instructions
+
+#### For Existing Users
+
+1. **Download** the new version from the release assets
+2. **Replace** the existing app:
+   ```bash
+   cp -r "Something in the Background.app" /Applications/
+   ```
+3. **Update your config** (optional) - add `[schedules]` section for any tasks you want automated
+4. **Restart** the app - scheduler starts automatically!
+
+#### Building from Source
+
+```bash
+git pull origin main
+cargo bundle --release
+cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/
+```
+
+### 📋 Example Configuration
+
+Here's a complete example combining tunnels and scheduled tasks:
+
+```toml
+path = "/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin"
+
+# Tunnels (toggle on/off)
+[tunnels.database-prod]
+name = "PROD Database"
+command = "ssh"
+args = ["-N", "-L", "5432:localhost:5432", "user@prod.example.com"]
+kill_command = "pkill"
+kill_args = ["-f", "user@prod.example.com"]
+group_header = "DATABASE"
+group_icon = "sf:cylinder.fill"
+separator_after = true
+
+# Scheduled Tasks (automatic execution)
+[schedules.daily-backup]
+name = "Daily Backup"
+command = "/usr/local/bin/backup.sh"
+args = ["--compress"]
+cron_schedule = "0 6 * * *"
+group_header = "SCHEDULED TASKS"
+group_icon = "sf:clock.fill"
+
+[schedules.health-check]
+name = "API Health Check"
+command = "curl"
+args = ["-f", "https://api.example.com/health"]
+cron_schedule = "*/30 * * * *"
+```
+
+### 🐛 Bug Reports
+
+If you encounter any issues:
+
+1. Check you're using v1.2.0
+2. Verify your cron syntax at [crontab.guru](https://crontab.guru/)
+3. Check logs with `log show --predicate 'subsystem == "com.vim-zz.something-bg"' --last 1h`
+4. Report issues with:
+   - Your macOS version
+   - Sample `config.toml` (sanitized)
+   - Steps to reproduce
+
+### 💡 What's Next
+
+Future releases may include:
+- Visual cron schedule builder
+- Task execution history
+- Email/notification on task completion
+- Task dependencies and chains
+- Export/import of scheduled task sets
+
+---
+
+**Full Changelog:** [CHANGELOG.md](CHANGELOG.md)
+
+**Download:** See release assets below
+
+**System Requirements:** macOS 10.15+ (Catalina or later)
+
 ## v1.0.3
 
 **Release Date:** November 10, 2025

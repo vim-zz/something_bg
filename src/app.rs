@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
+use crate::scheduler::TaskScheduler;
 use crate::tunnel::TunnelManager;
 
 // Wrapper type to make the status item thread-safe
@@ -21,6 +22,7 @@ unsafe impl Sync for StatusItemWrapper {}
 /// must be shared across modules (e.g., commands, active tunnels).
 pub struct App {
     pub tunnel_manager: TunnelManager,
+    pub task_scheduler: TaskScheduler,
     pub status_item: Option<Arc<Mutex<StatusItemWrapper>>>,
 }
 
@@ -28,17 +30,20 @@ impl App {
     /// Creates a new `App` with commands loaded from config file.
     pub fn new() -> Self {
         // Load configuration from TOML file
-        let commands = match Config::load() {
+        let config = match Config::load() {
             Ok(config) => {
                 info!("Loaded configuration successfully");
-                config.to_tunnel_commands()
+                config
             }
             Err(e) => {
                 error!("Failed to load configuration: {}", e);
                 warn!("Using default configuration");
-                Config::default().to_tunnel_commands()
+                Config::default()
             }
         };
+
+        let commands = config.to_tunnel_commands();
+        let path = config.get_path();
 
         // Initialize the tunnel manager
         let tunnel_manager = TunnelManager {
@@ -46,8 +51,26 @@ impl App {
             active_tunnels: Arc::new(Mutex::new(HashSet::new())),
         };
 
+        // Initialize the task scheduler
+        let task_scheduler = TaskScheduler::new(path);
+
+        // Add scheduled tasks from config
+        for (key, task_config) in &config.schedules {
+            if let Err(e) = task_scheduler.add_task(key.clone(), task_config) {
+                error!("Failed to add scheduled task '{}': {}", key, e);
+            }
+        }
+
+        // Start the scheduler
+        task_scheduler.start();
+        info!(
+            "Task scheduler started with {} tasks",
+            config.schedules.len()
+        );
+
         Self {
             tunnel_manager,
+            task_scheduler,
             status_item: None,
         }
     }
@@ -62,8 +85,9 @@ impl App {
             .and_then(|wrapper| wrapper.lock().ok().map(|guard| guard.0.clone()))
     }
 
-    /// Cleans up any active tunnels. Called on app termination.
+    /// Cleans up any active tunnels and stops the scheduler. Called on app termination.
     pub fn cleanup_tunnels(&self) {
         self.tunnel_manager.cleanup();
+        self.task_scheduler.stop();
     }
 }
