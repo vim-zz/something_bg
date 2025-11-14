@@ -3,7 +3,7 @@
 // Cron-based task scheduler for Something in the Background.
 // Handles scheduling and execution of periodic tasks based on cron expressions.
 
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local};
 use croner::Cron;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -21,8 +21,8 @@ use crate::config::ScheduledTaskConfig;
 /// Structure for persisting scheduled task state
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct TaskState {
-    last_run: Option<DateTime<Utc>>,
-    next_run: Option<DateTime<Utc>>,
+    last_run: Option<DateTime<Local>>,
+    next_run: Option<DateTime<Local>>,
 }
 
 /// Get the path to the state file for persisting task run times
@@ -93,8 +93,8 @@ pub struct ScheduledTask {
     pub command: String,
     pub args: Vec<String>,
     pub cron_schedule: String,
-    pub last_run: Option<DateTime<Utc>>,
-    pub next_run: Option<DateTime<Utc>>,
+    pub last_run: Option<DateTime<Local>>,
+    pub next_run: Option<DateTime<Local>>,
     cron: Option<Cron>,
 }
 
@@ -116,7 +116,7 @@ impl ScheduledTask {
             )
         })?;
 
-        let now = Utc::now();
+        let now = Local::now();
 
         // Load or calculate next_run
         let next_run = if let Some(state) = state {
@@ -164,9 +164,9 @@ impl ScheduledTask {
     /// Calculate next occurrence from a given time
     fn calculate_next_run(
         cron: &Cron,
-        from_time: &DateTime<Utc>,
+        from_time: &DateTime<Local>,
         task_name: &str,
-    ) -> Option<DateTime<Utc>> {
+    ) -> Option<DateTime<Local>> {
         match cron.find_next_occurrence(from_time, false) {
             Ok(next) => {
                 info!("Task '{}': calculated next_run = {}", task_name, next);
@@ -189,7 +189,7 @@ impl ScheduledTask {
     }
 
     /// Check if the task should run now
-    pub fn should_run(&self, now: &DateTime<Utc>) -> bool {
+    pub fn should_run(&self, now: &DateTime<Local>) -> bool {
         if let Some(next_run) = &self.next_run {
             now >= next_run
         } else {
@@ -200,7 +200,7 @@ impl ScheduledTask {
     /// Update next run time after execution
     pub fn update_next_run(&mut self) {
         if let Some(ref cron) = self.cron {
-            let now = Utc::now();
+            let now = Local::now();
             self.last_run = Some(now);
             match cron.find_next_occurrence(&now, false) {
                 Ok(next) => {
@@ -344,7 +344,7 @@ impl TaskScheduler {
             info!("Task scheduler started");
 
             while *running.lock().unwrap() {
-                let now = Utc::now();
+                let now = Local::now();
                 let mut tasks_guard = tasks.lock().unwrap();
                 let mut states_changed = false;
 
@@ -422,7 +422,7 @@ impl TaskScheduler {
     /// Check for and run any missed scheduled tasks
     /// This is useful after the system wakes from sleep
     pub fn check_and_run_missed_tasks(&self) {
-        let now = Utc::now();
+        let now = Local::now();
         let mut tasks = self.tasks.lock().unwrap();
         let mut any_task_run = false;
 
@@ -493,7 +493,6 @@ pub fn cron_to_human_readable(cron_pattern: &str) -> String {
             let pattern = &cron.pattern;
 
             // Simple pattern matching for common cases
-            // This is a basic implementation - you may want to enhance this
             if cron_pattern == "0 * * * *" {
                 return "Every hour".to_string();
             }
@@ -501,7 +500,7 @@ pub fn cron_to_human_readable(cron_pattern: &str) -> String {
                 return "Every day at midnight".to_string();
             }
             if cron_pattern.starts_with("0 ") && cron_pattern.matches(' ').count() == 4 {
-                // Pattern like "0 6 * * *" (at specific hour)
+                // Pattern like "0 10 * * *" (at specific hour in local time)
                 let parts: Vec<&str> = cron_pattern.split_whitespace().collect();
                 if parts.len() == 5
                     && parts[1].parse::<u32>().is_ok()
@@ -521,15 +520,13 @@ pub fn cron_to_human_readable(cron_pattern: &str) -> String {
     }
 }
 
-/// Format a DateTime for display in local timezone
-pub fn format_last_run(last_run: &Option<DateTime<Utc>>) -> String {
+/// Format a DateTime for display
+pub fn format_last_run(last_run: &Option<DateTime<Local>>) -> String {
     match last_run {
         Some(dt) => {
-            // Convert UTC to local timezone
-            let local_time = dt.with_timezone(&Local);
             // Format as a readable date/time string in 24-hour format
             // Example: "Jan 13, 2025 at 15:30"
-            local_time.format("%b %d, %Y at %H:%M").to_string()
+            dt.format("%b %d, %Y at %H:%M").to_string()
         }
         None => "Never".to_string(),
     }
