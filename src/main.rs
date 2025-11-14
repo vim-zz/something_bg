@@ -16,6 +16,7 @@ mod logger;
 mod menu;
 mod scheduler;
 mod tunnel;
+mod wake_detector;
 
 use app::App;
 
@@ -55,7 +56,15 @@ fn main() {
     the_app.set_status_item(status_item);
     GLOBAL_APP.set(the_app).ok().unwrap();
 
-    // 6. Observe application termination
+    // 6. Setup wake observer to detect when Mac wakes from sleep
+    wake_detector::set_wake_callback(|| {
+        if let Some(app) = GLOBAL_APP.get() {
+            app.handle_wake_from_sleep();
+        }
+    });
+    let _wake_observer = wake_detector::setup_wake_observer();
+
+    // 7. Observe application termination
     let notification_center = NSNotificationCenter::defaultCenter();
     unsafe {
         let notification_name =
@@ -68,6 +77,6 @@ fn main() {
         );
     }
 
-    // 7. Run the main application loop
+    // 8. Run the main application loop
     app.run();
 }

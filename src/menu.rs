@@ -112,13 +112,14 @@ fn update_scheduled_task_items(menu: &NSMenu) {
             if let Some(submenu) = item.submenu() {
                 // The submenu should have items in this order:
                 // 0: Schedule: ...
-                // 1: Last run: ...
-                // 2: Separator
-                // 3: Run Now
+                // 1: Next run: ...
+                // 2: Last run: ...
+                // 3: Separator
+                // 4: Run Now
 
-                if submenu.numberOfItems() >= 2 {
-                    // Try to get the task ID from the "Run Now" item (index 3)
-                    if let Some(run_now_item) = submenu.itemAtIndex(3) {
+                if submenu.numberOfItems() >= 3 {
+                    // Try to get the task ID from the "Run Now" item (index 4)
+                    if let Some(run_now_item) = submenu.itemAtIndex(4) {
                         if let Some(represented_obj) = run_now_item.representedObject() {
                             let task_id_any: &AnyObject =
                                 unsafe { std::mem::transmute(represented_obj) };
@@ -127,8 +128,16 @@ fn update_scheduled_task_items(menu: &NSMenu) {
 
                             // Get updated task info from scheduler
                             if let Some(task) = app.task_scheduler.get_task(&task_id_str) {
-                                // Update "Last run" item (index 1)
-                                if let Some(last_run_item) = submenu.itemAtIndex(1) {
+                                // Update "Next run" item (index 1)
+                                if let Some(next_run_item) = submenu.itemAtIndex(1) {
+                                    let next_run_text = format_last_run(&task.next_run);
+                                    let new_title =
+                                        NSString::from_str(&format!("Next run: {}", next_run_text));
+                                    next_run_item.setTitle(&new_title);
+                                }
+
+                                // Update "Last run" item (index 2)
+                                if let Some(last_run_item) = submenu.itemAtIndex(2) {
                                     let last_run_text = format_last_run(&task.last_run);
                                     let new_title =
                                         NSString::from_str(&format!("Last run: {}", last_run_text));
@@ -354,6 +363,26 @@ fn create_scheduled_task_item(
         );
         schedule_item.setEnabled(false);
         submenu.addItem(&schedule_item);
+
+        // Add next run info (disabled/grayed out)
+        let next_run_text = if let Some(app) = crate::GLOBAL_APP.get() {
+            if let Some(task) = app.task_scheduler.get_task(task_id) {
+                crate::scheduler::format_last_run(&task.next_run)
+            } else {
+                "Unknown".to_string()
+            }
+        } else {
+            "Unknown".to_string()
+        };
+        let next_run_title = NSString::from_str(&format!("Next run: {}", next_run_text));
+        let next_run_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &next_run_title,
+            None,
+            ns_string!(""),
+        );
+        next_run_item.setEnabled(false);
+        submenu.addItem(&next_run_item);
 
         // Add last run info (disabled/grayed out)
         let last_run_title = NSString::from_str(&format!("Last run: {}", last_run_text));

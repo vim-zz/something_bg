@@ -6,7 +6,10 @@
 use chrono::{DateTime, Local, Utc};
 use croner::Cron;
 use log::{debug, error, info, warn};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -14,6 +17,74 @@ use std::thread;
 use std::time::Duration;
 
 use crate::config::ScheduledTaskConfig;
+
+/// Structure for persisting scheduled task state
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct TaskState {
+    last_run: Option<DateTime<Utc>>,
+    next_run: Option<DateTime<Utc>>,
+}
+
+/// Get the path to the state file for persisting task run times
+fn get_state_file_path() -> PathBuf {
+    let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push(".config");
+    path.push("something_bg");
+    path.push("task_state.toml");
+    path
+}
+
+/// Load persisted task states from disk
+fn load_task_states() -> HashMap<String, TaskState> {
+    let path = get_state_file_path();
+
+    if !path.exists() {
+        return HashMap::new();
+    }
+
+    match fs::read_to_string(&path) {
+        Ok(contents) => match toml::from_str(&contents) {
+            Ok(states) => {
+                info!("Loaded task states from {}", path.display());
+                states
+            }
+            Err(e) => {
+                warn!("Failed to parse task state file: {}", e);
+                HashMap::new()
+            }
+        },
+        Err(e) => {
+            warn!("Failed to read task state file: {}", e);
+            HashMap::new()
+        }
+    }
+}
+
+/// Save task states to disk
+fn save_task_states(states: &HashMap<String, TaskState>) {
+    let path = get_state_file_path();
+
+    // Ensure the directory exists
+    if let Some(parent) = path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            error!("Failed to create state directory: {}", e);
+            return;
+        }
+    }
+
+    match toml::to_string_pretty(&states) {
+        Ok(toml_content) => {
+            if let Err(e) = fs::write(&path, toml_content) {
+                error!("Failed to write task state file: {}", e);
+            } else {
+                debug!("Saved task states to {}", path.display());
+            }
+        }
+        Err(e) => {
+            error!("Failed to serialize task states: {}", e);
+        }
+    }
+}
 
 /// Represents a scheduled task with its configuration and runtime state
 #[derive(Clone, Debug)]
@@ -28,8 +99,16 @@ pub struct ScheduledTask {
 }
 
 impl ScheduledTask {
-    /// Create a new ScheduledTask from configuration
-    pub fn new(config: &ScheduledTaskConfig) -> Result<Self, String> {
+    /// Create a new ScheduledTask from configuration and persisted state
+    fn new(
+        config: &ScheduledTaskConfig,
+        state: Option<&TaskState>,
+    ) -> Result<Self, String> {
+        info!(
+            "Creating task '{}' with schedule '{}'",
+            config.name, config.cron_schedule
+        );
+
         let cron = Cron::from_str(&config.cron_schedule).map_err(|e| {
             format!(
                 "Failed to parse cron schedule '{}': {}",
@@ -38,17 +117,66 @@ impl ScheduledTask {
         })?;
 
         let now = Utc::now();
-        let next_run = cron.find_next_occurrence(&now, false).ok();
+
+        // Load or calculate next_run
+        let next_run = if let Some(state) = state {
+            if let Some(saved_next_run) = state.next_run {
+                info!(
+                    "Task '{}': loaded next_run from file: {}",
+                    config.name, saved_next_run
+                );
+                Some(saved_next_run)
+            } else {
+                // State exists but no next_run - calculate it
+                info!(
+                    "Task '{}': no saved next_run, calculating from now",
+                    config.name
+                );
+                Self::calculate_next_run(&cron, &now, &config.name)
+            }
+        } else {
+            // No state at all - first time
+            info!(
+                "Task '{}': first time, calculating next_run from now",
+                config.name
+            );
+            Self::calculate_next_run(&cron, &now, &config.name)
+        };
+
+        let last_run = state.and_then(|s| s.last_run);
+
+        info!(
+            "Task '{}': initialized with last_run={:?}, next_run={:?}",
+            config.name, last_run, next_run
+        );
 
         Ok(Self {
             name: config.name.clone(),
             command: config.command.clone(),
             args: config.args.clone(),
             cron_schedule: config.cron_schedule.clone(),
-            last_run: None,
+            last_run,
             next_run,
             cron: Some(cron),
         })
+    }
+
+    /// Calculate next occurrence from a given time
+    fn calculate_next_run(
+        cron: &Cron,
+        from_time: &DateTime<Utc>,
+        task_name: &str,
+    ) -> Option<DateTime<Utc>> {
+        match cron.find_next_occurrence(from_time, false) {
+            Ok(next) => {
+                info!("Task '{}': calculated next_run = {}", task_name, next);
+                Some(next)
+            }
+            Err(e) => {
+                error!("Task '{}': failed to calculate next_run: {}", task_name, e);
+                None
+            }
+        }
     }
 
     /// Get a human-readable description of the cron schedule
@@ -74,7 +202,22 @@ impl ScheduledTask {
         if let Some(ref cron) = self.cron {
             let now = Utc::now();
             self.last_run = Some(now);
-            self.next_run = cron.find_next_occurrence(&now, false).ok();
+            match cron.find_next_occurrence(&now, false) {
+                Ok(next) => {
+                    self.next_run = Some(next);
+                    debug!(
+                        "Task '{}': updated next_run to {} after execution at {}",
+                        self.name, next, now
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Task '{}': failed to calculate next_run after execution at {}: {}",
+                        self.name, now, e
+                    );
+                    self.next_run = None;
+                }
+            }
         }
     }
 
@@ -115,24 +258,59 @@ pub struct TaskScheduler {
     tasks: Arc<Mutex<HashMap<String, ScheduledTask>>>,
     path: String,
     running: Arc<Mutex<bool>>,
+    states: Arc<Mutex<HashMap<String, TaskState>>>,
 }
 
 impl TaskScheduler {
     /// Create a new TaskScheduler
     pub fn new(path: String) -> Self {
+        let states = load_task_states();
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
             path,
             running: Arc::new(Mutex::new(false)),
+            states: Arc::new(Mutex::new(states)),
         }
     }
 
     /// Add a scheduled task
     pub fn add_task(&self, key: String, config: &ScheduledTaskConfig) -> Result<(), String> {
-        let task = ScheduledTask::new(config)?;
+        // Check if we have a persisted state for this task
+        let states = self.states.lock().unwrap();
+        let state = states.get(&key);
+
+        let task = ScheduledTask::new(config, state)?;
+        drop(states);
+
         let mut tasks = self.tasks.lock().unwrap();
         tasks.insert(key, task);
         Ok(())
+    }
+
+    /// Save the current task states to disk
+    pub fn save_states(&self) {
+        let tasks = self.tasks.lock().unwrap();
+        let mut states_map = HashMap::new();
+
+        for (key, task) in tasks.iter() {
+            states_map.insert(
+                key.clone(),
+                TaskState {
+                    last_run: task.last_run,
+                    next_run: task.next_run,
+                },
+            );
+        }
+
+        drop(tasks);
+
+        // Update the states in memory
+        let mut states = self.states.lock().unwrap();
+        *states = states_map.clone();
+        drop(states);
+
+        // Save to disk
+        save_task_states(&states_map);
     }
 
     /// Get a copy of a specific task's state
@@ -160,6 +338,7 @@ impl TaskScheduler {
         let tasks = Arc::clone(&self.tasks);
         let path = self.path.clone();
         let running = Arc::clone(&self.running);
+        let states = Arc::clone(&self.states);
 
         thread::spawn(move || {
             info!("Task scheduler started");
@@ -167,17 +346,44 @@ impl TaskScheduler {
             while *running.lock().unwrap() {
                 let now = Utc::now();
                 let mut tasks_guard = tasks.lock().unwrap();
+                let mut states_changed = false;
 
                 for (key, task) in tasks_guard.iter_mut() {
                     if task.should_run(&now) {
                         debug!("Task '{}' is due to run", key);
                         if let Err(e) = task.execute(&path) {
                             error!("Task '{}' execution failed: {}", key, e);
+                        } else {
+                            states_changed = true;
                         }
                     }
                 }
 
                 drop(tasks_guard);
+
+                // Save states if any task was executed
+                if states_changed {
+                    let tasks = tasks.lock().unwrap();
+                    let mut states_map = HashMap::new();
+
+                    for (key, task) in tasks.iter() {
+                        states_map.insert(
+                            key.clone(),
+                            TaskState {
+                                last_run: task.last_run,
+                                next_run: task.next_run,
+                            },
+                        );
+                    }
+
+                    drop(tasks);
+
+                    let mut states_guard = states.lock().unwrap();
+                    *states_guard = states_map.clone();
+                    drop(states_guard);
+
+                    save_task_states(&states_map);
+                }
 
                 // Check every 30 seconds
                 thread::sleep(Duration::from_secs(30));
@@ -197,10 +403,78 @@ impl TaskScheduler {
     /// Manually trigger a task to run now
     pub fn run_task_now(&self, key: &str) -> Result<(), String> {
         let mut tasks = self.tasks.lock().unwrap();
-        if let Some(task) = tasks.get_mut(key) {
+        let result = if let Some(task) = tasks.get_mut(key) {
             task.execute(&self.path)
         } else {
             Err(format!("Task '{}' not found", key))
+        };
+
+        drop(tasks);
+
+        // Save states after manual execution
+        if result.is_ok() {
+            self.save_states();
+        }
+
+        result
+    }
+
+    /// Check for and run any missed scheduled tasks
+    /// This is useful after the system wakes from sleep
+    pub fn check_and_run_missed_tasks(&self) {
+        let now = Utc::now();
+        let mut tasks = self.tasks.lock().unwrap();
+        let mut any_task_run = false;
+
+        info!(
+            "Checking for missed scheduled tasks (current time: {})",
+            now
+        );
+
+        for (key, task) in tasks.iter_mut() {
+            info!(
+                "Task '{}': schedule={}, next_run={:?}, last_run={:?}",
+                key, task.cron_schedule, task.next_run, task.last_run
+            );
+
+            // A task is considered "missed" if:
+            // 1. It has a next_run time scheduled
+            // 2. That next_run time is in the past (we're past when it should have run)
+            // 3. Either it has never run, or the last run was before the scheduled next_run
+            if let Some(next_run) = task.next_run {
+                let is_overdue = now >= next_run;
+                let was_not_run_yet = task.last_run.is_none() || task.last_run.unwrap() < next_run;
+
+                debug!(
+                    "Task '{}': is_overdue={}, was_not_run_yet={}, would_run={}",
+                    key,
+                    is_overdue,
+                    was_not_run_yet,
+                    is_overdue && was_not_run_yet
+                );
+
+                if is_overdue && was_not_run_yet {
+                    info!(
+                        "Task '{}' was scheduled to run at {} but was missed. Running now.",
+                        key, next_run
+                    );
+
+                    if let Err(e) = task.execute(&self.path) {
+                        error!("Failed to run missed task '{}': {}", key, e);
+                    } else {
+                        any_task_run = true;
+                    }
+                }
+            } else {
+                info!("Task '{}' has no next_run scheduled", key);
+            }
+        }
+
+        drop(tasks);
+
+        // Save states if any task was run
+        if any_task_run {
+            self.save_states();
         }
     }
 }

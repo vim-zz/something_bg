@@ -61,12 +61,20 @@ impl App {
             }
         }
 
+        // Save initial states (including calculated next_run values) to disk
+        task_scheduler.save_states();
+        info!("Saved initial task states to disk");
+
         // Start the scheduler
         task_scheduler.start();
         info!(
             "Task scheduler started with {} tasks",
             config.schedules.len()
         );
+
+        // Check for missed tasks on startup (before returning Self)
+        info!("Checking for missed tasks on app startup...");
+        task_scheduler.check_and_run_missed_tasks();
 
         Self {
             tunnel_manager,
@@ -89,5 +97,11 @@ impl App {
     pub fn cleanup_tunnels(&self) {
         self.tunnel_manager.cleanup();
         self.task_scheduler.stop();
+    }
+
+    /// Called when the system wakes from sleep to check for and run any missed scheduled tasks
+    pub fn handle_wake_from_sleep(&self) {
+        info!("System woke from sleep - checking for missed scheduled tasks");
+        self.task_scheduler.check_and_run_missed_tasks();
     }
 }

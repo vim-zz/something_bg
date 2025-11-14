@@ -1,6 +1,6 @@
 [package]
 name = "something_bg"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2024"
 
 # Mac App Bundle configuration for the `cargo bundle` command
@@ -14,16 +14,16 @@ resources = ["resources/*.png", "resources/images/*.png"]
 [dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSNotification"] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSStatusBar", "NSStatusItem"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSStatusBar", "NSStatusItem", "NSWorkspace"] }
 core-foundation = "0.10"
 libc = "0.2"
 log = "0.4"
 oslog = "0.2"
 toml = { version = "0.8", features = ["preserve_order"] }
 serde = { version = "1.0", features = ["derive"] }
-croner = "2.0"
-chrono = "0.4"
-serde_json = "1.0"
+croner = "3.0"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
 
 [profile.release]
 strip = true
