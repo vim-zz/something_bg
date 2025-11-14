@@ -1,17 +1,20 @@
 # Something in the Background
 
-A super light macOS menu bar application for managing background processes like SSH tunnels, port forwarding, and development services. Everything is configured via a simple TOML file.
+A lightweight native macOS utility for running scripts and commands in the background - powered by Rust.
+
+`something_bg` is a tiny macOS status-bar app designed to take any script or command you already use and run it quietly in the background. No terminals to keep open, no remembering where scripts live, no complicated setup.
+
+If you’ve ever left a Terminal window open _“just to keep a command running”_, this app is for you.
 
 <img align="right" src="something_bg.png" alt="Menu Bar Screenshot" width="400">
 
 ## Features
 
-- Toggle any CLI task on/off from the menu bar
-- Run scheduled tasks with cron syntax in the background
-- Custom commands based on TOML configuration
-- Custom PATH environment support
-- Native macOS integration
-- Group headers with SF Symbol icons for organizing menu items
+- Tiny native macOS app with a Rust core (less than 1MB)
+- Run any script or CLI task without keeping a terminal open
+- Run scripts on a schedule without cron, or launchd
+- Controlled from the menu bar
+- Everything is configured with one simple config file
 
 ## Installation
 
