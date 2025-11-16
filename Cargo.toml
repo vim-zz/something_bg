@@ -1,12 +1,12 @@
 [package]
 name = "something_bg"
-version = "1.2.3"
+version = "1.3.0"
 edition = "2024"
 
 # Mac App Bundle configuration for the `cargo bundle` command
 [package.metadata.bundle]
 copyright = "Copyright (c) 2025 Ofer Affias"
-icon = ["resources/rocket.icns"]
+icon = ["resources/circle.icns"]
 identifier = "com.vim-zz.something-bg"
 name = "Something in the Background"
 resources = ["resources/*.png", "resources/images/*.png"]

@@ -1,5 +1,43 @@
 # Release Notes - Something in the Background
 
+## v1.3.0
+
+**Release Date:** November 16, 2025
+
+### 🎨 New About Window & Refreshed Branding
+
+We're excited to introduce a **new About window** and **refreshed app icon** that brings a cleaner, more consistent look to Something in the Background!
+
+#### What's New
+
+**About Window**
+- Click "About" in the menu to open a floating information window
+- Displays version number, copyright info, and a clickable GitHub link
+- Features the new circle ring icon as the app logo
+- Window floats above other apps for easy visibility
+- Clean, minimal design with no title bar clutter
+
+**New App Icon**
+- Replaced the rocket icon with a minimalist **circle ring** design
+- Matches the status bar indicators (○ inactive / ● active)
+- Consistent branding throughout the app
+- Professional, understated aesthetic
+
+**Cleaner Menus**
+- Removed automatic SF Symbol icons from About and Quit menu items
+- macOS Big Sur+ was adding these icons automatically based on action names
+- Custom selectors now prevent system-imposed decorations
+- Cleaner, more intentional menu appearance
+
+#### Technical Highlights
+
+- **Window Architecture**: Full NSWindow implementation with NSTextField, NSImageView, NSButton
+- **URL Handler**: Clickable "View on GitHub" button opens browser directly
+- **Icon Generation**: Automated script creates .icns at all standard macOS sizes
+- **macOS Compatibility**: Works around Big Sur's automatic SF Symbol assignment
+
+---
+
 ## v1.2.0
 
 **Release Date:** January 13, 2025

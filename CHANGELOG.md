@@ -5,6 +5,36 @@ All notable changes to Something in the Background will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-11-16
+
+### Added
+- **About Window**: New floating About dialog accessible from the menu
+  - Displays app version number dynamically
+  - Shows circle ring icon matching the new app branding
+  - Includes clickable "View on GitHub" button that opens the repository in browser
+  - Shows copyright information (© 2025 Ofer Affias)
+  - Window floats above other windows and activates the app when opened
+  - Clean, titleless window design
+
+### Changed
+- **App Icon**: Replaced rocket icon with minimalist circle ring design
+  - New `circle.icns` icon generated at all standard macOS sizes (16x16 to 1024x1024)
+  - Matches the status bar icon style (○ for inactive, ● for active)
+  - Consistent branding across app icon and status bar
+- **About Menu Item**: Changed from disabled informational text to clickable action
+- **Menu Item Appearance**: Removed automatic SF Symbol icons from About and Quit menu items
+  - Uses custom action selectors (`displayAppInfo:`, `exitApplication:`) to prevent macOS from adding default symbols
+  - Cleaner, more consistent menu appearance without system-imposed icons
+
+### Technical Details
+- Added AppKit window support: `NSWindow`, `NSTextField`, `NSImageView`, `NSButton`
+- Implemented `URLButtonHelper` class for handling GitHub link button clicks
+- Created custom `displayAppInfo:` selector (avoiding "About" keyword in selector name)
+- Created custom `exitApplication:` selector (avoiding `terminate:` standard selector)
+- These custom selectors prevent macOS Big Sur+ automatic SF Symbol assignment
+- Added `.venv/` to `.gitignore` for Python virtual environment (used in icon generation)
+- Icon generation script creates proper .icns from circle ring PNGs
+
 ## [1.2.0] - 2025-01-13
 
 ### Added
