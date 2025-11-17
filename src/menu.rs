@@ -241,21 +241,6 @@ fn show_about_window_handler() {
         // Keep helper alive
         std::mem::forget(url_helper);
 
-        // Copyright label
-        let copyright_label = NSTextField::initWithFrame(
-            mtm.alloc(),
-            NSRect::new(NSPoint::new(20.0, 30.0), NSSize::new(260.0, 25.0)),
-        );
-        let copyright_text = NSString::from_str("© 2025 Ofer Affias");
-        copyright_label.setStringValue(&copyright_text);
-        copyright_label.setEditable(false);
-        copyright_label.setBordered(false);
-        copyright_label.setDrawsBackground(false);
-        copyright_label.setAlignment(objc2_app_kit::NSTextAlignment::Center);
-        let small_font = objc2_app_kit::NSFont::systemFontOfSize(11.0);
-        copyright_label.setFont(Some(&small_font));
-        content_view.addSubview(&copyright_label);
-
         // Make window float above other windows
         window.setLevel(objc2_app_kit::NSFloatingWindowLevel);
 
