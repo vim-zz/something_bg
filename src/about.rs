@@ -19,13 +19,9 @@ use std::cell::RefCell;
 // Thread-local storage for the About window to prevent memory leaks.
 // Using thread_local! because NSWindow and URLButtonHelper are main-thread-only objects.
 thread_local! {
-    static ABOUT_WINDOW: RefCell<Option<AboutWindowState>> = const { RefCell::new(None) };
-}
-
-/// Holds the About window state to manage its lifecycle properly
-struct AboutWindowState {
-    _window: Retained<NSWindow>,
-    _url_helper: Retained<URLButtonHelper>,
+    static ABOUT_WINDOW: RefCell<Option<Retained<NSWindow>>> = const { RefCell::new(None) };
+    // Store URL helpers separately - they must outlive their windows to avoid use-after-free
+    static URL_HELPERS: RefCell<Vec<Retained<URLButtonHelper>>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Get the application version from Cargo.toml
@@ -82,23 +78,13 @@ pub fn show_about_window() {
         return;
     };
 
-    // Check if window already exists and just bring it to front
-    let window_exists = ABOUT_WINDOW.with(|cell| {
-        if let Some(state) = cell.borrow().as_ref() {
-            state._window.makeKeyAndOrderFront(None);
-            let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-            app.activate();
-            true
-        } else {
-            false
-        }
+    // Clear any previous window (this properly deallocates the old window)
+    // We create a fresh window each time to avoid issues with closed windows
+    ABOUT_WINDOW.with(|cell| {
+        *cell.borrow_mut() = None;
     });
 
-    if window_exists {
-        return;
-    }
-
-    // Create new window
+    // Create new window and URL helper
     let window = create_about_window(mtm);
     let url_helper = URLButtonHelper::new(mtm);
 
@@ -113,13 +99,17 @@ pub fn show_about_window() {
     let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
     app.activate();
 
-    // Store window state to prevent deallocation (proper lifecycle management)
-    let state = AboutWindowState {
-        _window: window,
-        _url_helper: url_helper,
-    };
+    // Store URL helper separately - it must outlive the window because the button
+    // holds a weak reference to it. We keep all helpers alive for the app lifetime.
+    URL_HELPERS.with(|cell| {
+        cell.borrow_mut().push(url_helper);
+    });
+
+    // Store window to prevent deallocation (proper lifecycle management)
+    // This replaces std::mem::forget() - the old window is properly released,
+    // and the new one is kept alive until the next call or app termination
     ABOUT_WINDOW.with(|cell| {
-        *cell.borrow_mut() = Some(state);
+        *cell.borrow_mut() = Some(window);
     });
 }
 
@@ -139,6 +129,11 @@ fn create_about_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
             false,
         )
     };
+
+    // Prevent AppKit from auto-releasing the window when closed
+    // We manage the lifecycle ourselves via our Retained<> reference
+    // SAFETY: We're taking ownership of the window's lifecycle management
+    unsafe { window.setReleasedWhenClosed(false) };
 
     window.center();
     window
