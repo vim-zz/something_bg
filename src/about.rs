@@ -14,6 +14,19 @@ use objc2_foundation::{
     MainThreadMarker, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL,
     ns_string,
 };
+use std::cell::RefCell;
+
+// Thread-local storage for the About window to prevent memory leaks.
+// Using thread_local! because NSWindow and URLButtonHelper are main-thread-only objects.
+thread_local! {
+    static ABOUT_WINDOW: RefCell<Option<AboutWindowState>> = const { RefCell::new(None) };
+}
+
+/// Holds the About window state to manage its lifecycle properly
+struct AboutWindowState {
+    _window: Retained<NSWindow>,
+    _url_helper: Retained<URLButtonHelper>,
+}
 
 /// Get the application version from Cargo.toml
 pub fn get_app_version() -> String {
@@ -69,101 +82,156 @@ pub fn show_about_window() {
         return;
     };
 
-    unsafe {
-        // Create window
-        let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(300.0, 280.0));
-        let style_mask = NSWindowStyleMask::Titled
-            | NSWindowStyleMask::Closable
-            | NSWindowStyleMask::Miniaturizable;
+    // Check if window already exists and just bring it to front
+    let window_exists = ABOUT_WINDOW.with(|cell| {
+        if let Some(state) = cell.borrow().as_ref() {
+            state._window.makeKeyAndOrderFront(None);
+            let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+            app.activate();
+            true
+        } else {
+            false
+        }
+    });
 
-        let window = NSWindow::initWithContentRect_styleMask_backing_defer(
+    if window_exists {
+        return;
+    }
+
+    // Create new window
+    let window = create_about_window(mtm);
+    let url_helper = URLButtonHelper::new(mtm);
+
+    // Setup the window content
+    setup_window_content(&window, &url_helper, mtm);
+
+    // Configure window behavior
+    window.setLevel(objc2_app_kit::NSFloatingWindowLevel);
+    window.makeKeyAndOrderFront(None);
+
+    // Activate the application to ensure window is visible
+    let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+    app.activate();
+
+    // Store window state to prevent deallocation (proper lifecycle management)
+    let state = AboutWindowState {
+        _window: window,
+        _url_helper: url_helper,
+    };
+    ABOUT_WINDOW.with(|cell| {
+        *cell.borrow_mut() = Some(state);
+    });
+}
+
+/// Creates the About window with proper frame and style
+fn create_about_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
+    let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(300.0, 280.0));
+    let style_mask = NSWindowStyleMask::Titled
+        | NSWindowStyleMask::Closable
+        | NSWindowStyleMask::Miniaturizable;
+
+    let window = unsafe {
+        NSWindow::initWithContentRect_styleMask_backing_defer(
             mtm.alloc(),
             frame,
             style_mask,
             NSBackingStoreType::Buffered,
             false,
-        );
+        )
+    };
 
-        window.center();
+    window.center();
+    window
+}
 
-        // Get content view
-        let content_view = window.contentView().unwrap();
+/// Sets up all the content views inside the About window
+fn setup_window_content(
+    window: &NSWindow,
+    url_helper: &URLButtonHelper,
+    mtm: MainThreadMarker,
+) {
+    let content_view = window.contentView().unwrap();
 
-        // Create circle image (using SF Symbol or drawing)
-        let image_view = NSImageView::initWithFrame(
-            mtm.alloc(),
-            NSRect::new(NSPoint::new(100.0, 180.0), NSSize::new(100.0, 100.0)),
-        );
+    // Add icon
+    add_app_icon(&content_view, mtm);
 
-        // Use SF Symbol for circle ring (stroke only)
-        if let Some(circle_image) =
-            NSImage::imageWithSystemSymbolName_accessibilityDescription(ns_string!("circle"), None)
-        {
-            circle_image.setSize(NSSize::new(80.0, 80.0));
-            image_view.setImage(Some(&circle_image));
-        }
-        image_view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
-        content_view.addSubview(&image_view);
+    // Add app name label
+    add_app_name_label(&content_view, mtm);
 
-        // App name label
-        let app_name_label = NSTextField::initWithFrame(
-            mtm.alloc(),
-            NSRect::new(NSPoint::new(20.0, 140.0), NSSize::new(260.0, 30.0)),
-        );
-        let app_name = NSString::from_str("Something in the Background");
-        app_name_label.setStringValue(&app_name);
-        app_name_label.setEditable(false);
-        app_name_label.setBordered(false);
-        app_name_label.setDrawsBackground(false);
-        app_name_label.setAlignment(objc2_app_kit::NSTextAlignment::Center);
-        let bold_font = objc2_app_kit::NSFont::boldSystemFontOfSize(16.0);
-        app_name_label.setFont(Some(&bold_font));
-        content_view.addSubview(&app_name_label);
+    // Add version label
+    add_version_label(&content_view, mtm);
 
-        // Version label
-        let version_label = NSTextField::initWithFrame(
-            mtm.alloc(),
-            NSRect::new(NSPoint::new(20.0, 110.0), NSSize::new(260.0, 25.0)),
-        );
-        let version_text = NSString::from_str(&format!("Version {}", get_app_version()));
-        version_label.setStringValue(&version_text);
-        version_label.setEditable(false);
-        version_label.setBordered(false);
-        version_label.setDrawsBackground(false);
-        version_label.setAlignment(objc2_app_kit::NSTextAlignment::Center);
-        content_view.addSubview(&version_label);
+    // Add GitHub button
+    add_github_button(&content_view, url_helper, mtm);
+}
 
-        // Create a clickable button for GitHub URL
-        let github_button = NSButton::initWithFrame(
-            mtm.alloc(),
-            NSRect::new(NSPoint::new(50.0, 65.0), NSSize::new(200.0, 30.0)),
-        );
-        let github_url_text = NSString::from_str("View on GitHub");
-        github_button.setTitle(&github_url_text);
-        github_button.setBezelStyle(objc2_app_kit::NSBezelStyle::Push);
+/// Adds the app icon (SF Symbol circle) to the window
+fn add_app_icon(content_view: &objc2_app_kit::NSView, mtm: MainThreadMarker) {
+    let image_view = NSImageView::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(100.0, 180.0), NSSize::new(100.0, 100.0)),
+    );
 
-        // Create helper for button action and set it as target
-        let url_helper = URLButtonHelper::new(mtm);
-        github_button.setTarget(Some(&url_helper as &AnyObject));
-        github_button.setAction(Some(sel!(openURL:)));
-        content_view.addSubview(&github_button);
-
-        // Keep helper alive
-        std::mem::forget(url_helper);
-
-        // Make window float above other windows
-        window.setLevel(objc2_app_kit::NSFloatingWindowLevel);
-
-        // Show the window and bring it to front
-        window.makeKeyAndOrderFront(None);
-
-        // Activate the application to ensure window is visible
-        let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-        app.activate();
-
-        // Keep window alive by storing it globally (it will be released when closed)
-        // For a simple approach, we'll use NSApplication's addWindowsItem or similar
-        // But since this is a one-off window, we need to prevent it from being deallocated
-        std::mem::forget(window);
+    if let Some(circle_image) =
+        NSImage::imageWithSystemSymbolName_accessibilityDescription(ns_string!("circle"), None)
+    {
+        circle_image.setSize(NSSize::new(80.0, 80.0));
+        image_view.setImage(Some(&circle_image));
     }
+    image_view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
+    content_view.addSubview(&image_view);
+}
+
+/// Adds the app name label to the window
+fn add_app_name_label(content_view: &objc2_app_kit::NSView, mtm: MainThreadMarker) {
+    let app_name_label = NSTextField::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(20.0, 140.0), NSSize::new(260.0, 30.0)),
+    );
+    let app_name = NSString::from_str("Something in the Background");
+    app_name_label.setStringValue(&app_name);
+    app_name_label.setEditable(false);
+    app_name_label.setBordered(false);
+    app_name_label.setDrawsBackground(false);
+    app_name_label.setAlignment(objc2_app_kit::NSTextAlignment::Center);
+    let bold_font = objc2_app_kit::NSFont::boldSystemFontOfSize(16.0);
+    app_name_label.setFont(Some(&bold_font));
+    content_view.addSubview(&app_name_label);
+}
+
+/// Adds the version label to the window
+fn add_version_label(content_view: &objc2_app_kit::NSView, mtm: MainThreadMarker) {
+    let version_label = NSTextField::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(20.0, 110.0), NSSize::new(260.0, 25.0)),
+    );
+    let version_text = NSString::from_str(&format!("Version {}", get_app_version()));
+    version_label.setStringValue(&version_text);
+    version_label.setEditable(false);
+    version_label.setBordered(false);
+    version_label.setDrawsBackground(false);
+    version_label.setAlignment(objc2_app_kit::NSTextAlignment::Center);
+    content_view.addSubview(&version_label);
+}
+
+/// Adds the GitHub button to the window
+fn add_github_button(
+    content_view: &objc2_app_kit::NSView,
+    url_helper: &URLButtonHelper,
+    mtm: MainThreadMarker,
+) {
+    let github_button = NSButton::initWithFrame(
+        mtm.alloc(),
+        NSRect::new(NSPoint::new(50.0, 65.0), NSSize::new(200.0, 30.0)),
+    );
+    let github_url_text = NSString::from_str("View on GitHub");
+    github_button.setTitle(&github_url_text);
+    github_button.setBezelStyle(objc2_app_kit::NSBezelStyle::Push);
+
+    // SAFETY: url_helper is a valid target that responds to the openURL: selector
+    unsafe {
+        github_button.setTarget(Some(url_helper as &AnyObject));
+        github_button.setAction(Some(sel!(openURL:)));
+    }
+    content_view.addSubview(&github_button);
 }

@@ -106,9 +106,8 @@ fn run_scheduled_task_handler(item: &NSMenuItem) {
     use log::info;
 
     if let Some(represented_obj) = item.representedObject() {
-        let task_id_any: &AnyObject = unsafe { std::mem::transmute(represented_obj) };
-        let task_id: &NSString = unsafe { std::mem::transmute(task_id_any) };
-        let task_id_str = task_id.to_string();
+        // SAFETY: We know we stored an NSString as the represented object
+        let task_id_str = extract_nsstring_from_object(&represented_obj);
 
         info!("Manually triggering scheduled task: {}", task_id_str);
 
@@ -120,6 +119,42 @@ fn run_scheduled_task_handler(item: &NSMenuItem) {
             // via the menuNeedsUpdate delegate method
         }
     }
+}
+
+/// Safely extracts an NSString from a represented object
+/// SAFETY: Caller must ensure the object is actually an NSString
+fn extract_nsstring_from_object(obj: &AnyObject) -> String {
+    // Use objc2's safe casting mechanism
+    let ns_string: &NSString = unsafe { &*(obj as *const AnyObject as *const NSString) };
+    ns_string.to_string()
+}
+
+/// Helper to create an NSMenuItem with action
+/// Wraps the unsafe initWithTitle_action_keyEquivalent call
+fn create_menu_item_with_action(
+    title: &NSString,
+    action: Option<objc2::runtime::Sel>,
+    key_equivalent: &NSString,
+    mtm: MainThreadMarker,
+) -> Retained<NSMenuItem> {
+    // SAFETY: This is a standard Cocoa pattern for creating menu items
+    unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), title, action, key_equivalent)
+    }
+}
+
+/// Helper to set represented object on a menu item
+/// Wraps the unsafe setRepresentedObject call
+fn set_menu_item_represented_object(item: &NSMenuItem, obj: &NSString) {
+    // SAFETY: We're storing a valid NSString object
+    unsafe { item.setRepresentedObject(Some(obj)) };
+}
+
+/// Helper to set target on a menu item
+/// Wraps the unsafe setTarget call
+fn set_menu_item_target(item: &NSMenuItem, target: &AnyObject) {
+    // SAFETY: target must be a valid object that responds to the item's action selector
+    unsafe { item.setTarget(Some(target)) };
 }
 
 /// Update scheduled task items in the menu to show current "Last run" times
@@ -148,10 +183,7 @@ fn update_scheduled_task_items(menu: &NSMenu) {
                     // Try to get the task ID from the "Run Now" item (index 4)
                     if let Some(run_now_item) = submenu.itemAtIndex(4) {
                         if let Some(represented_obj) = run_now_item.representedObject() {
-                            let task_id_any: &AnyObject =
-                                unsafe { std::mem::transmute(represented_obj) };
-                            let task_id: &NSString = unsafe { std::mem::transmute(task_id_any) };
-                            let task_id_str = task_id.to_string();
+                            let task_id_str = extract_nsstring_from_object(&represented_obj);
 
                             // Get updated task info from scheduler
                             if let Some(task) = app.task_scheduler.get_task(&task_id_str) {
@@ -181,107 +213,105 @@ fn update_scheduled_task_items(menu: &NSMenu) {
 
 /// Create the NSMenu for the status item.
 pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSMenu> {
-    unsafe {
-        let menu = NSMenu::new(mtm);
+    let menu = NSMenu::new(mtm);
 
-        // Set the delegate so menuNeedsUpdate gets called
-        let delegate = ProtocolObject::from_ref(handler);
-        menu.setDelegate(Some(delegate));
+    // Set the delegate so menuNeedsUpdate gets called
+    let delegate = ProtocolObject::from_ref(handler);
+    menu.setDelegate(Some(delegate));
 
-        // Load configuration and create menu items dynamically
-        let config = match Config::load() {
-            Ok(config) => config,
-            Err(e) => {
-                error!("Failed to load configuration for menu: {}", e);
-                warn!("Using default configuration for menu");
-                Config::default()
-            }
-        };
+    // Load configuration and create menu items dynamically
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            error!("Failed to load configuration for menu: {}", e);
+            warn!("Using default configuration for menu");
+            Config::default()
+        }
+    };
 
-        // Create menu items from configuration
-        for (key, tunnel_config) in config.tunnels.iter() {
+    // Create menu items from configuration
+    for (key, tunnel_config) in config.tunnels.iter() {
+        // Add group header if specified
+        if let Some(group_header) = &tunnel_config.group_header {
+            let header_item =
+                create_header_item(group_header, tunnel_config.group_icon.as_deref(), mtm);
+            menu.addItem(&header_item);
+        }
+
+        let menu_item = create_menu_item(handler, tunnel_config, key, mtm);
+        menu.addItem(&menu_item);
+
+        // Add separator after this item if configured
+        if tunnel_config.separator_after.unwrap_or(false) {
+            let separator = NSMenuItem::separatorItem(mtm);
+            menu.addItem(&separator);
+        }
+    }
+
+    // Add scheduled tasks section
+    if !config.schedules.is_empty() {
+        let separator = NSMenuItem::separatorItem(mtm);
+        menu.addItem(&separator);
+
+        for (key, task_config) in config.schedules.iter() {
             // Add group header if specified
-            if let Some(group_header) = &tunnel_config.group_header {
+            if let Some(group_header) = &task_config.group_header {
                 let header_item =
-                    create_header_item(group_header, tunnel_config.group_icon.as_deref(), mtm);
+                    create_header_item(group_header, task_config.group_icon.as_deref(), mtm);
                 menu.addItem(&header_item);
             }
 
-            let menu_item = create_menu_item(handler, tunnel_config, key, mtm);
-            menu.addItem(&menu_item);
+            let scheduled_menu_item =
+                create_scheduled_task_item(handler, task_config, key, mtm);
+            menu.addItem(&scheduled_menu_item);
 
             // Add separator after this item if configured
-            if tunnel_config.separator_after.unwrap_or(false) {
+            if task_config.separator_after.unwrap_or(false) {
                 let separator = NSMenuItem::separatorItem(mtm);
                 menu.addItem(&separator);
             }
         }
-
-        // Add scheduled tasks section
-        if !config.schedules.is_empty() {
-            let separator = NSMenuItem::separatorItem(mtm);
-            menu.addItem(&separator);
-
-            for (key, task_config) in config.schedules.iter() {
-                // Add group header if specified
-                if let Some(group_header) = &task_config.group_header {
-                    let header_item =
-                        create_header_item(group_header, task_config.group_icon.as_deref(), mtm);
-                    menu.addItem(&header_item);
-                }
-
-                let scheduled_menu_item =
-                    create_scheduled_task_item(handler, task_config, key, mtm);
-                menu.addItem(&scheduled_menu_item);
-
-                // Add separator after this item if configured
-                if task_config.separator_after.unwrap_or(false) {
-                    let separator = NSMenuItem::separatorItem(mtm);
-                    menu.addItem(&separator);
-                }
-            }
-        }
-
-        // Add Separator before Open Config Folder
-        let separator1 = NSMenuItem::separatorItem(mtm);
-        menu.addItem(&separator1);
-
-        // Add "Open Config Folder" item
-        let config_folder_item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            ns_string!("Open Config Folder"),
-            Some(sel!(openConfigFolder:)),
-            ns_string!(""),
-        );
-        config_folder_item.setTarget(Some(handler as &AnyObject));
-        menu.addItem(&config_folder_item);
-
-        // Add About item (clickable, opens About window)
-        let about_item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            ns_string!("About"),
-            Some(sel!(displayAppInfo:)),
-            ns_string!(""),
-        );
-        about_item.setTarget(Some(handler as &AnyObject));
-        menu.addItem(&about_item);
-
-        // Add Separator before Quit
-        let separator1 = NSMenuItem::separatorItem(mtm);
-        menu.addItem(&separator1);
-
-        // Quit menu item (using custom selector to avoid automatic symbol)
-        let quit_item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            ns_string!("Quit Something in the Background"),
-            Some(sel!(exitApplication:)),
-            ns_string!("q"),
-        );
-        quit_item.setTarget(Some(handler as &AnyObject));
-        menu.addItem(&quit_item);
-
-        menu
     }
+
+    // Add Separator before Open Config Folder
+    let separator1 = NSMenuItem::separatorItem(mtm);
+    menu.addItem(&separator1);
+
+    // Add "Open Config Folder" item
+    let config_folder_item = create_menu_item_with_action(
+        ns_string!("Open Config Folder"),
+        Some(sel!(openConfigFolder:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_target(&config_folder_item, handler as &AnyObject);
+    menu.addItem(&config_folder_item);
+
+    // Add About item (clickable, opens About window)
+    let about_item = create_menu_item_with_action(
+        ns_string!("About"),
+        Some(sel!(displayAppInfo:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_target(&about_item, handler as &AnyObject);
+    menu.addItem(&about_item);
+
+    // Add Separator before Quit
+    let separator1 = NSMenuItem::separatorItem(mtm);
+    menu.addItem(&separator1);
+
+    // Quit menu item (using custom selector to avoid automatic symbol)
+    let quit_item = create_menu_item_with_action(
+        ns_string!("Quit Something in the Background"),
+        Some(sel!(exitApplication:)),
+        ns_string!("q"),
+        mtm,
+    );
+    set_menu_item_target(&quit_item, handler as &AnyObject);
+    menu.addItem(&quit_item);
+
+    menu
 }
 
 /// Helper to create a header menu item (non-clickable section title)
@@ -290,27 +320,20 @@ fn create_header_item(
     icon_spec: Option<&str>,
     mtm: MainThreadMarker,
 ) -> Retained<NSMenuItem> {
-    unsafe {
-        let title_ns = NSString::from_str(title);
-        let item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            &title_ns,
-            None, // No action - non-clickable
-            ns_string!(""),
-        );
+    let title_ns = NSString::from_str(title);
+    let item = create_menu_item_with_action(&title_ns, None, ns_string!(""), mtm);
 
-        // Make it disabled (non-clickable) and use as section header
-        item.setEnabled(false);
+    // Make it disabled (non-clickable) and use as section header
+    item.setEnabled(false);
 
-        // Load and set icon if specified
-        if let Some(icon) = icon_spec {
-            if let Some(image) = load_icon(icon) {
-                item.setImage(Some(&image));
-            }
+    // Load and set icon if specified
+    if let Some(icon) = icon_spec {
+        if let Some(image) = load_icon(icon) {
+            item.setImage(Some(&image));
         }
-
-        item
     }
+
+    item
 }
 
 /// Helper to create a single NSMenuItem for toggling a tunnel.
@@ -320,22 +343,15 @@ fn create_menu_item(
     command_id: &str,
     mtm: MainThreadMarker,
 ) -> Retained<NSMenuItem> {
-    unsafe {
-        let title_ns = NSString::from_str(&tunnel_config.name);
-        let item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            &title_ns,
-            Some(sel!(toggleTunnel:)),
-            ns_string!(""),
-        );
+    let title_ns = NSString::from_str(&tunnel_config.name);
+    let item = create_menu_item_with_action(&title_ns, Some(sel!(toggleTunnel:)), ns_string!(""), mtm);
 
-        let command_id_ns = NSString::from_str(command_id);
-        item.setRepresentedObject(Some(&command_id_ns));
-        item.setTarget(Some(handler as &AnyObject));
-        item.setState(0); // NSOffState = 0
+    let command_id_ns = NSString::from_str(command_id);
+    set_menu_item_represented_object(&item, &command_id_ns);
+    set_menu_item_target(&item, handler as &AnyObject);
+    item.setState(0); // NSOffState = 0
 
-        item
-    }
+    item
 }
 
 /// Helper to create a menu item for a scheduled task with submenu
@@ -345,104 +361,82 @@ fn create_scheduled_task_item(
     task_id: &str,
     mtm: MainThreadMarker,
 ) -> Retained<NSMenuItem> {
-    unsafe {
-        // Main menu item with task name
-        let title_ns = NSString::from_str(&task_config.name);
-        let item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            &title_ns,
-            None, // No direct action
-            ns_string!(""),
-        );
+    // Main menu item with task name
+    let title_ns = NSString::from_str(&task_config.name);
+    let item = create_menu_item_with_action(&title_ns, None, ns_string!(""), mtm);
 
-        // Create submenu
-        let submenu = NSMenu::new(mtm);
+    // Create submenu
+    let submenu = NSMenu::new(mtm);
 
-        // Get task info from scheduler if available
-        let (schedule_text, last_run_text) = if let Some(app) = crate::GLOBAL_APP.get() {
-            let schedule = if let Some(task) = app.task_scheduler.get_task(task_id) {
-                crate::scheduler::cron_to_human_readable(&task.cron_schedule)
-            } else {
-                crate::scheduler::cron_to_human_readable(&task_config.cron_schedule)
-            };
-
-            let last_run = if let Some(task) = app.task_scheduler.get_task(task_id) {
-                crate::scheduler::format_last_run(&task.last_run)
-            } else {
-                "Never".to_string()
-            };
-
-            (schedule, last_run)
+    // Get task info from scheduler if available
+    let (schedule_text, last_run_text) = if let Some(app) = crate::GLOBAL_APP.get() {
+        let schedule = if let Some(task) = app.task_scheduler.get_task(task_id) {
+            crate::scheduler::cron_to_human_readable(&task.cron_schedule)
         } else {
-            (
-                crate::scheduler::cron_to_human_readable(&task_config.cron_schedule),
-                "Never".to_string(),
-            )
+            crate::scheduler::cron_to_human_readable(&task_config.cron_schedule)
         };
 
-        // Add schedule info (disabled/grayed out)
-        let schedule_title = NSString::from_str(&format!("Schedule: {}", schedule_text));
-        let schedule_item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            &schedule_title,
-            None,
-            ns_string!(""),
-        );
-        schedule_item.setEnabled(false);
-        submenu.addItem(&schedule_item);
+        let last_run = if let Some(task) = app.task_scheduler.get_task(task_id) {
+            crate::scheduler::format_last_run(&task.last_run)
+        } else {
+            "Never".to_string()
+        };
 
-        // Add next run info (disabled/grayed out)
-        let next_run_text = if let Some(app) = crate::GLOBAL_APP.get() {
-            if let Some(task) = app.task_scheduler.get_task(task_id) {
-                crate::scheduler::format_last_run(&task.next_run)
-            } else {
-                "Unknown".to_string()
-            }
+        (schedule, last_run)
+    } else {
+        (
+            crate::scheduler::cron_to_human_readable(&task_config.cron_schedule),
+            "Never".to_string(),
+        )
+    };
+
+    // Add schedule info (disabled/grayed out)
+    let schedule_title = NSString::from_str(&format!("Schedule: {}", schedule_text));
+    let schedule_item = create_menu_item_with_action(&schedule_title, None, ns_string!(""), mtm);
+    schedule_item.setEnabled(false);
+    submenu.addItem(&schedule_item);
+
+    // Add next run info (disabled/grayed out)
+    let next_run_text = if let Some(app) = crate::GLOBAL_APP.get() {
+        if let Some(task) = app.task_scheduler.get_task(task_id) {
+            crate::scheduler::format_last_run(&task.next_run)
         } else {
             "Unknown".to_string()
-        };
-        let next_run_title = NSString::from_str(&format!("Next run: {}", next_run_text));
-        let next_run_item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            &next_run_title,
-            None,
-            ns_string!(""),
-        );
-        next_run_item.setEnabled(false);
-        submenu.addItem(&next_run_item);
+        }
+    } else {
+        "Unknown".to_string()
+    };
+    let next_run_title = NSString::from_str(&format!("Next run: {}", next_run_text));
+    let next_run_item = create_menu_item_with_action(&next_run_title, None, ns_string!(""), mtm);
+    next_run_item.setEnabled(false);
+    submenu.addItem(&next_run_item);
 
-        // Add last run info (disabled/grayed out)
-        let last_run_title = NSString::from_str(&format!("Last run: {}", last_run_text));
-        let last_run_item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            &last_run_title,
-            None,
-            ns_string!(""),
-        );
-        last_run_item.setEnabled(false);
-        submenu.addItem(&last_run_item);
+    // Add last run info (disabled/grayed out)
+    let last_run_title = NSString::from_str(&format!("Last run: {}", last_run_text));
+    let last_run_item = create_menu_item_with_action(&last_run_title, None, ns_string!(""), mtm);
+    last_run_item.setEnabled(false);
+    submenu.addItem(&last_run_item);
 
-        // Add separator
-        let separator = NSMenuItem::separatorItem(mtm);
-        submenu.addItem(&separator);
+    // Add separator
+    let separator = NSMenuItem::separatorItem(mtm);
+    submenu.addItem(&separator);
 
-        // Add "Run Now" action
-        let run_now_item = NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            ns_string!("Run Now"),
-            Some(sel!(runScheduledTask:)),
-            ns_string!(""),
-        );
-        let task_id_ns = NSString::from_str(task_id);
-        run_now_item.setRepresentedObject(Some(&task_id_ns));
-        run_now_item.setTarget(Some(handler as &AnyObject));
-        submenu.addItem(&run_now_item);
+    // Add "Run Now" action
+    let run_now_item = create_menu_item_with_action(
+        ns_string!("Run Now"),
+        Some(sel!(runScheduledTask:)),
+        ns_string!(""),
+        mtm,
+    );
+    let task_id_ns = NSString::from_str(task_id);
+    set_menu_item_represented_object(&run_now_item, &task_id_ns);
+    set_menu_item_target(&run_now_item, handler as &AnyObject);
+    submenu.addItem(&run_now_item);
 
-        // Attach submenu to main item
-        item.setSubmenu(Some(&submenu));
+    // Attach submenu to main item
+    item.setSubmenu(Some(&submenu));
 
-        item
-    }
+    item
 }
 
 /// Load an icon from an SF Symbol.

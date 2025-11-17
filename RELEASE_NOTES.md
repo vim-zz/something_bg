@@ -1,5 +1,62 @@
 # Release Notes - Something in the Background
 
+## v1.3.2
+
+**Release Date:** November 17, 2025
+
+### 🛠️ Code Quality & Memory Safety Improvements
+
+This release focuses on **internal code quality improvements** that make Something in the Background more robust, maintainable, and memory-safe. No user-facing changes, but significant improvements under the hood!
+
+#### What's Fixed
+
+**Memory Leak Eliminated**
+- Fixed memory leak in About window that occurred every time the window was opened
+- Window and helper objects are now properly managed instead of being leaked
+- Bonus: Opening About again now brings the existing window to front instead of creating duplicates
+
+#### What's Improved
+
+**Better Code Architecture**
+- Refactored About window into its own dedicated module (`about.rs`)
+- Improved separation of concerns - window logic now isolated from menu handling
+- More maintainable codebase with focused, single-responsibility modules
+
+**Safer Rust Code**
+- Removed dangerous `std::mem::transmute` calls throughout the codebase
+- Minimized unsafe code blocks from 100+ line scopes to focused single-line operations
+- Created reusable helper functions that encapsulate unsafe Objective-C interop
+- Added comprehensive safety documentation for all remaining unsafe operations
+- Better memory safety through proper RAII patterns
+
+#### Technical Highlights
+
+**Unsafe Code Minimization**
+- `create_menu_item_with_action()` - wraps unsafe NSMenuItem creation
+- `set_menu_item_target()` - wraps unsafe setTarget calls
+- `set_menu_item_represented_object()` - wraps unsafe setRepresentedObject
+- `extract_nsstring_from_object()` - centralized NSString extraction with safety invariants
+
+**Thread-Safe Window Management**
+```rust
+// Before: Memory leak
+std::mem::forget(window);
+std::mem::forget(url_helper);
+
+// After: Proper lifecycle management
+thread_local! {
+    static ABOUT_WINDOW: RefCell<Option<AboutWindowState>> = RefCell::new(None);
+}
+```
+
+**Why This Matters**
+- Prevents memory leaks that would accumulate over time
+- Reduces potential for undefined behavior from unsafe code
+- Makes future development safer and easier
+- Professional code quality following Rust best practices
+
+---
+
 ## v1.3.0
 
 **Release Date:** November 16, 2025

@@ -5,6 +5,38 @@ All notable changes to Something in the Background will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2025-11-17
+
+### Changed
+- **Code Architecture**: Refactored About window into its own dedicated module (`about.rs`)
+  - Improved separation of concerns with modular code organization
+  - Window logic now isolated from menu handling code
+  - Better maintainability with focused, single-responsibility modules
+
+### Fixed
+- **Memory Leak**: Eliminated memory leaks in About window implementation
+  - Replaced `std::mem::forget()` with proper lifecycle management using `thread_local!` storage
+  - Window and button helper objects now properly managed instead of leaked
+  - Added window reuse - opening About again brings existing window to front instead of creating duplicates
+
+### Technical Details
+- **Unsafe Code Minimization**: Reduced scope of unsafe blocks across the codebase
+  - Removed dangerous `std::mem::transmute` calls, replaced with safer pointer casts
+  - Created reusable helper functions that encapsulate unsafe operations:
+    - `create_menu_item_with_action()` - wraps unsafe menu item creation
+    - `set_menu_item_target()` - wraps unsafe setTarget calls
+    - `set_menu_item_represented_object()` - wraps unsafe setRepresentedObject
+    - `extract_nsstring_from_object()` - centralized NSString extraction with documented safety invariants
+  - Unsafe blocks reduced from 100+ line scopes to focused single-line operations
+  - Added comprehensive SAFETY comments documenting invariants for each unsafe operation
+- **Thread-Safe Storage**: About window state stored in `thread_local! { RefCell<Option<AboutWindowState>> }`
+  - Properly handles main-thread-only Cocoa objects
+  - Prevents window deallocation while maintaining ability to clean up
+- **Code Quality**: Improved idiomatic Rust patterns
+  - Better memory safety through proper RAII patterns
+  - Cleaner, more maintainable codebase with smaller focused functions
+  - Enhanced compile-time safety with reduced unsafe surface area
+
 ## [1.3.0] - 2025-11-16
 
 ### Added

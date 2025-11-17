@@ -129,3 +129,4 @@ Uses a patched version of `objc` crate from a third-party fork for compatibility
 - Uses objc2 for type-safe Objective-C interop (migrated from legacy objc crate)
 - All optional fields (`separator_after`, `group_header`, `group_icon`) use `#[serde(default)]` for backward compatibility
 - TOML special characters (like backslash) must be escaped with `\\` in configuration strings
+- In the Release Notes, dont include Upgrade Instructions nor Future Plans

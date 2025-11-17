@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use log::{debug, error, info, warn};
+use objc2::runtime::AnyObject;
 use objc2_app_kit::NSMenuItem;
 use objc2_foundation::NSString;
 
@@ -173,6 +174,13 @@ impl TunnelManager {
     }
 }
 
+/// Safely extracts an NSString from a represented object
+/// SAFETY: Caller must ensure the object is actually an NSString
+fn extract_nsstring_from_object(obj: &AnyObject) -> String {
+    let ns_string: &NSString = unsafe { &*(obj as *const AnyObject as *const NSString) };
+    ns_string.to_string()
+}
+
 /// This is the function that handles the menu item toggle.
 /// Instead of interacting with static globals directly, we route the request to the
 /// `TunnelManager` inside the global `App` reference.
@@ -185,9 +193,8 @@ pub fn toggle_tunnel_handler(item: &NSMenuItem) {
 
     // Extract the command key from the menu item
     if let Some(command_id) = item.representedObject() {
-        // Safely downcast to NSString
-        let command_id_ns: *const NSString = &*command_id as *const _ as *const NSString;
-        let command_key = unsafe { (*command_id_ns).to_string() };
+        // Safely extract NSString from represented object
+        let command_key = extract_nsstring_from_object(&command_id);
 
         // Get a handle to the global `App`.
         if let Some(app) = crate::GLOBAL_APP.get() {
