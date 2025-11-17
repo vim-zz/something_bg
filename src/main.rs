@@ -10,6 +10,7 @@ use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use objc2_foundation::{MainThreadMarker, NSNotificationCenter};
 use std::sync::OnceLock;
 
+mod about;
 mod app;
 mod config;
 mod logger;
