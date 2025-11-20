@@ -8,6 +8,11 @@ If you’ve ever left a Terminal window open _“just to keep a command running�
 
 <img align="right" src="something_bg.png" alt="Menu Bar Screenshot" width="400">
 
+## Repository layout
+
+- `core/` — platform-agnostic logic (config, scheduler, tunnel management).
+- `app-macos/` — macOS shell (tray UI, oslog, wake detection) that links to `core`.
+
 ## Features
 
 - Tiny native macOS app with a Rust core (less than 1MB)
@@ -32,9 +37,9 @@ git clone https://github.com/vim-zz/something_bg.git
 cd something_bg
 ```
 
-2. Build and bundle the application:
+2. Build and bundle the application (run from repo root):
 ```bash
-cargo bundle --release
+cargo bundle --release -p something_bg
 ```
 
 3. Move the app to your Applications folder:

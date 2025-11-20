@@ -12,11 +12,8 @@ use std::sync::OnceLock;
 
 mod about;
 mod app;
-mod config;
 mod logger;
 mod menu;
-mod scheduler;
-mod tunnel;
 mod wake_detector;
 
 use app::App;

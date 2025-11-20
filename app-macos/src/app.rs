@@ -9,9 +9,9 @@ use objc2_app_kit::NSStatusItem;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use crate::config::Config;
-use crate::scheduler::TaskScheduler;
-use crate::tunnel::TunnelManager;
+use something_bg_core::config::Config;
+use something_bg_core::scheduler::TaskScheduler;
+use something_bg_core::tunnel::TunnelManager;
 
 // Wrapper type to make the status item thread-safe
 pub struct StatusItemWrapper(pub Retained<NSStatusItem>);

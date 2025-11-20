@@ -3,9 +3,7 @@
 // Handles the About window display and related functionality.
 
 use log::{error, info};
-use objc2::{
-    ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject, sel,
-};
+use objc2::{ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject, sel};
 use objc2_app_kit::{
     NSBackingStoreType, NSButton, NSImage, NSImageScaling, NSImageView, NSTextField, NSWindow,
     NSWindowStyleMask,
@@ -116,9 +114,8 @@ pub fn show_about_window() {
 /// Creates the About window with proper frame and style
 fn create_about_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(300.0, 280.0));
-    let style_mask = NSWindowStyleMask::Titled
-        | NSWindowStyleMask::Closable
-        | NSWindowStyleMask::Miniaturizable;
+    let style_mask =
+        NSWindowStyleMask::Titled | NSWindowStyleMask::Closable | NSWindowStyleMask::Miniaturizable;
 
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
@@ -140,11 +137,7 @@ fn create_about_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
 }
 
 /// Sets up all the content views inside the About window
-fn setup_window_content(
-    window: &NSWindow,
-    url_helper: &URLButtonHelper,
-    mtm: MainThreadMarker,
-) {
+fn setup_window_content(window: &NSWindow, url_helper: &URLButtonHelper, mtm: MainThreadMarker) {
     let content_view = window.contentView().unwrap();
 
     // Add icon

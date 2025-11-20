@@ -100,10 +100,7 @@ pub struct ScheduledTask {
 
 impl ScheduledTask {
     /// Create a new ScheduledTask from configuration and persisted state
-    fn new(
-        config: &ScheduledTaskConfig,
-        state: Option<&TaskState>,
-    ) -> Result<Self, String> {
+    fn new(config: &ScheduledTaskConfig, state: Option<&TaskState>) -> Result<Self, String> {
         info!(
             "Creating task '{}' with schedule '{}'",
             config.name, config.cron_schedule

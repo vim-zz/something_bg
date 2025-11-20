@@ -1,0 +1,12 @@
+[package]
+name = "something_bg_core"
+version = "1.4.0"
+edition = "2024"
+
+[dependencies]
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+toml = { version = "0.8", features = ["preserve_order"] }
+croner = "3.0"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"

@@ -9,12 +9,11 @@ use objc2::{
     ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject,
     runtime::ProtocolObject, sel,
 };
-use objc2_app_kit::{
-    NSImage, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar, NSStatusItem,
-};
+use objc2_app_kit::{NSImage, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar, NSStatusItem};
 use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, ns_string};
 
-use crate::config::{Config, ScheduledTaskConfig, TunnelConfig};
+use crate::GLOBAL_APP;
+use something_bg_core::config::{Config, ScheduledTaskConfig, TunnelConfig};
 
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
@@ -42,7 +41,7 @@ define_class!(
     impl MenuHandler {
         #[unsafe(method(toggleTunnel:))]
         fn toggle_tunnel(&self, item: &NSMenuItem) {
-            crate::tunnel::toggle_tunnel_handler(item);
+            toggle_tunnel_handler(item);
         }
 
         #[unsafe(method(applicationWillTerminate:))]
@@ -52,7 +51,7 @@ define_class!(
 
         #[unsafe(method(openConfigFolder:))]
         fn open_config_folder(&self, _item: &NSMenuItem) {
-            crate::config::open_config_folder_handler();
+            something_bg_core::config::open_config_folder_handler();
         }
 
         #[unsafe(method(runScheduledTask:))]
@@ -157,9 +156,34 @@ fn set_menu_item_target(item: &NSMenuItem, target: &AnyObject) {
     unsafe { item.setTarget(Some(target)) };
 }
 
+/// Handle toggling a tunnel menu item by delegating into the shared App state.
+fn toggle_tunnel_handler(item: &NSMenuItem) {
+    // Identify if the menu item is currently active or not.
+    let state = item.state();
+    let new_state = if state == 1 { 0 } else { 1 }; // NSOnState = 1, NSOffState = 0
+    item.setState(new_state);
+
+    // Extract the command key from the menu item
+    if let Some(command_id) = item.representedObject() {
+        let command_key = extract_nsstring_from_object(&command_id);
+
+        if let Some(app) = GLOBAL_APP.get() {
+            let enable = new_state == 1;
+            let any_active = app.tunnel_manager.toggle(&command_key, enable);
+
+            // Update the status item icon if we have a reference to it
+            if let Some(status_item) = app.get_status_item() {
+                if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+                    update_status_item_title(&status_item, any_active, mtm);
+                }
+            }
+        }
+    }
+}
+
 /// Update scheduled task items in the menu to show current "Last run" times
 fn update_scheduled_task_items(menu: &NSMenu) {
-    use crate::scheduler::format_last_run;
+    use something_bg_core::scheduler::format_last_run;
 
     // Get the app to access the scheduler
     let Some(app) = crate::GLOBAL_APP.get() else {
@@ -261,8 +285,7 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
                 menu.addItem(&header_item);
             }
 
-            let scheduled_menu_item =
-                create_scheduled_task_item(handler, task_config, key, mtm);
+            let scheduled_menu_item = create_scheduled_task_item(handler, task_config, key, mtm);
             menu.addItem(&scheduled_menu_item);
 
             // Add separator after this item if configured
@@ -344,7 +367,8 @@ fn create_menu_item(
     mtm: MainThreadMarker,
 ) -> Retained<NSMenuItem> {
     let title_ns = NSString::from_str(&tunnel_config.name);
-    let item = create_menu_item_with_action(&title_ns, Some(sel!(toggleTunnel:)), ns_string!(""), mtm);
+    let item =
+        create_menu_item_with_action(&title_ns, Some(sel!(toggleTunnel:)), ns_string!(""), mtm);
 
     let command_id_ns = NSString::from_str(command_id);
     set_menu_item_represented_object(&item, &command_id_ns);
@@ -371,13 +395,13 @@ fn create_scheduled_task_item(
     // Get task info from scheduler if available
     let (schedule_text, last_run_text) = if let Some(app) = crate::GLOBAL_APP.get() {
         let schedule = if let Some(task) = app.task_scheduler.get_task(task_id) {
-            crate::scheduler::cron_to_human_readable(&task.cron_schedule)
+            something_bg_core::scheduler::cron_to_human_readable(&task.cron_schedule)
         } else {
-            crate::scheduler::cron_to_human_readable(&task_config.cron_schedule)
+            something_bg_core::scheduler::cron_to_human_readable(&task_config.cron_schedule)
         };
 
         let last_run = if let Some(task) = app.task_scheduler.get_task(task_id) {
-            crate::scheduler::format_last_run(&task.last_run)
+            something_bg_core::scheduler::format_last_run(&task.last_run)
         } else {
             "Never".to_string()
         };
@@ -385,7 +409,7 @@ fn create_scheduled_task_item(
         (schedule, last_run)
     } else {
         (
-            crate::scheduler::cron_to_human_readable(&task_config.cron_schedule),
+            something_bg_core::scheduler::cron_to_human_readable(&task_config.cron_schedule),
             "Never".to_string(),
         )
     };
@@ -399,7 +423,7 @@ fn create_scheduled_task_item(
     // Add next run info (disabled/grayed out)
     let next_run_text = if let Some(app) = crate::GLOBAL_APP.get() {
         if let Some(task) = app.task_scheduler.get_task(task_id) {
-            crate::scheduler::format_last_run(&task.next_run)
+            something_bg_core::scheduler::format_last_run(&task.next_run)
         } else {
             "Unknown".to_string()
         }

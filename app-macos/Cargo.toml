@@ -1,0 +1,27 @@
+[package]
+name = "something_bg"
+version.workspace = true
+edition.workspace = true
+
+# Mac App Bundle configuration for the `cargo bundle` command
+[package.metadata.bundle]
+copyright = "Copyright (c) 2025 Ofer Affias"
+icon = ["../resources/circle.icns"]
+identifier = "com.vim-zz.something-bg"
+name = "Something in the Background"
+resources = ["../resources/*.png", "../resources/images/*.png"]
+
+[dependencies]
+something_bg_core = { path = "../core" }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSNotification"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSStatusBar", "NSStatusItem", "NSWorkspace"] }
+core-foundation = "0.10"
+libc = "0.2"
+log = "0.4"
+oslog = "0.2"
+toml = { version = "0.8", features = ["preserve_order"] }
+serde = { version = "1.0", features = ["derive"] }
+croner = "3.0"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
