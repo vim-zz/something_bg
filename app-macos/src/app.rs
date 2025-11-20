@@ -10,8 +10,11 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use something_bg_core::config::Config;
+use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
 use something_bg_core::tunnel::TunnelManager;
+
+use crate::paths::MacPaths;
 
 // Wrapper type to make the status item thread-safe
 pub struct StatusItemWrapper(pub Retained<NSStatusItem>);
@@ -23,14 +26,17 @@ unsafe impl Sync for StatusItemWrapper {}
 pub struct App {
     pub tunnel_manager: TunnelManager,
     pub task_scheduler: TaskScheduler,
+    pub paths: Arc<MacPaths>,
     pub status_item: Option<Arc<Mutex<StatusItemWrapper>>>,
 }
 
 impl App {
     /// Creates a new `App` with commands loaded from config file.
     pub fn new() -> Self {
+        let paths = Arc::new(MacPaths::default());
+
         // Load configuration from TOML file
-        let config = match Config::load() {
+        let config = match Config::load_with(paths.as_ref()) {
             Ok(config) => {
                 info!("Loaded configuration successfully");
                 config
@@ -49,10 +55,11 @@ impl App {
         let tunnel_manager = TunnelManager {
             commands_config: Arc::new(Mutex::new(commands)),
             active_tunnels: Arc::new(Mutex::new(HashSet::new())),
+            env_path: config.get_path(),
         };
 
         // Initialize the task scheduler
-        let task_scheduler = TaskScheduler::new(path);
+        let task_scheduler = TaskScheduler::new(path, paths.as_ref());
 
         // Add scheduled tasks from config
         for (key, task_config) in &config.schedules {
@@ -79,6 +86,7 @@ impl App {
         Self {
             tunnel_manager,
             task_scheduler,
+            paths,
             status_item: None,
         }
     }
@@ -103,5 +111,9 @@ impl App {
     pub fn handle_wake_from_sleep(&self) {
         info!("System woke from sleep - checking for missed scheduled tasks");
         self.task_scheduler.check_and_run_missed_tasks();
+    }
+
+    pub fn config_path(&self) -> std::path::PathBuf {
+        self.paths.config_path()
     }
 }

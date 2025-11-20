@@ -13,7 +13,17 @@ use objc2_app_kit::{NSImage, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar, NS
 use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, ns_string};
 
 use crate::GLOBAL_APP;
+use crate::paths::MacPaths;
 use something_bg_core::config::{Config, ScheduledTaskConfig, TunnelConfig};
+use something_bg_core::platform::AppPaths;
+
+fn load_config() -> Config {
+    if let Some(app) = GLOBAL_APP.get() {
+        Config::load_with(app.paths.as_ref()).unwrap_or_else(|_| Config::default())
+    } else {
+        Config::load_with(&MacPaths::default()).unwrap_or_else(|_| Config::default())
+    }
+}
 
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
@@ -51,7 +61,7 @@ define_class!(
 
         #[unsafe(method(openConfigFolder:))]
         fn open_config_folder(&self, _item: &NSMenuItem) {
-            something_bg_core::config::open_config_folder_handler();
+            open_config_folder_handler();
         }
 
         #[unsafe(method(runScheduledTask:))]
@@ -156,6 +166,26 @@ fn set_menu_item_target(item: &NSMenuItem, target: &AnyObject) {
     unsafe { item.setTarget(Some(target)) };
 }
 
+/// Open the config folder in Finder using the current app paths.
+fn open_config_folder_handler() {
+    use log::{error, info};
+    use std::process::Command;
+
+    let config_path = if let Some(app) = GLOBAL_APP.get() {
+        app.config_path()
+    } else {
+        MacPaths::default().config_path()
+    };
+
+    // Ensure the config file exists by triggering load (creates default if missing)
+    let _ = Config::load_with(&MacPaths::default());
+
+    match Command::new("open").arg("-R").arg(&config_path).spawn() {
+        Ok(_) => info!("Opened config folder in Finder"),
+        Err(e) => error!("Failed to open config folder: {}", e),
+    }
+}
+
 /// Handle toggling a tunnel menu item by delegating into the shared App state.
 fn toggle_tunnel_handler(item: &NSMenuItem) {
     // Identify if the menu item is currently active or not.
@@ -244,14 +274,7 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
     menu.setDelegate(Some(delegate));
 
     // Load configuration and create menu items dynamically
-    let config = match Config::load() {
-        Ok(config) => config,
-        Err(e) => {
-            error!("Failed to load configuration for menu: {}", e);
-            warn!("Using default configuration for menu");
-            Config::default()
-        }
-    };
+    let config = load_config();
 
     // Create menu items from configuration
     for (key, tunnel_config) in config.tunnels.iter() {

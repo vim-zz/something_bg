@@ -9,8 +9,6 @@ use std::thread;
 
 use log::{debug, error, info, warn};
 
-use crate::config::Config;
-
 #[derive(Clone)]
 pub struct TunnelCommand {
     pub command: String,
@@ -24,6 +22,7 @@ pub struct TunnelCommand {
 pub struct TunnelManager {
     pub commands_config: Arc<Mutex<HashMap<String, TunnelCommand>>>,
     pub active_tunnels: Arc<Mutex<HashSet<String>>>,
+    pub env_path: String,
 }
 
 impl TunnelManager {
@@ -43,6 +42,7 @@ impl TunnelManager {
             let commands_config = self.commands_config.clone();
             let active_tunnels = self.active_tunnels.clone();
             let command_key = command_key.to_owned();
+            let env_path = self.env_path.clone();
 
             thread::spawn(move || {
                 let mut attempts = 0;
@@ -66,12 +66,8 @@ impl TunnelManager {
 
                     let mut cmd = Command::new(&command.command);
 
-                    // Get PATH from config
-                    let config_path = match Config::load() {
-                        Ok(config) => config.get_path(),
-                        Err(_) => "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/opt/homebrew/bin"
-                            .to_string(),
-                    };
+                    // PATH to use for subprocesses (provided by platform/app)
+                    let config_path = env_path.clone();
 
                     // Update PATH to include configured paths
                     let new_path = cmd

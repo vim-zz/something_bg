@@ -14,6 +14,7 @@ mod about;
 mod app;
 mod logger;
 mod menu;
+mod paths;
 mod wake_detector;
 
 use app::App;

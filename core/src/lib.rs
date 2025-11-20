@@ -26,7 +26,7 @@ pub mod platform {
     }
 
     /// Trait for platform-correct config/cache paths.
-    pub trait AppPaths {
+    pub trait AppPaths: Send + Sync {
         fn config_path(&self) -> std::path::PathBuf;
         fn state_path(&self) -> std::path::PathBuf;
     }

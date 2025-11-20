@@ -1,14 +1,12 @@
-// src/config.rs
-//
-// Configuration loading and management for Something in the Background.
-// Handles loading tunnel configurations from TOML files.
+//! Configuration loading and management.
+//! Uses injected `AppPaths` so platform shells control where files live.
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
 
+use crate::platform::AppPaths;
 use crate::tunnel::TunnelCommand;
 
 // Helper struct for serialization to maintain TOML structure
@@ -16,6 +14,7 @@ use crate::tunnel::TunnelCommand;
 struct ConfigForSerialization {
     tunnels: HashMap<String, TunnelConfig>,
     schedules: HashMap<String, ScheduledTaskConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
 }
 
@@ -53,13 +52,14 @@ pub struct Config {
     pub tunnels: Vec<(String, TunnelConfig)>,
     #[serde(default)]
     pub schedules: Vec<(String, ScheduledTaskConfig)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
 
 impl Config {
-    /// Load configuration from the default location (~/.config/something_bg/config.toml)
-    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let config_path = get_config_path()?;
+    /// Load configuration from the provided paths. Creates a default file if missing.
+    pub fn load_with(paths: &dyn AppPaths) -> Result<Self, Box<dyn std::error::Error>> {
+        let config_path = paths.config_path();
 
         if !config_path.exists() {
             info!(
@@ -67,7 +67,7 @@ impl Config {
                 config_path
             );
             let default_config = Self::default();
-            default_config.save()?;
+            default_config.save_with(paths)?;
             return Ok(default_config);
         }
 
@@ -82,49 +82,9 @@ impl Config {
         Ok(config)
     }
 
-    /// Convert from toml::Value preserving order
-    fn from_toml_value(value: toml::Value) -> Result<Self, Box<dyn std::error::Error>> {
-        let table = value.as_table().ok_or("Root must be a table")?;
-
-        let path = table
-            .get("path")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        let mut tunnels = Vec::new();
-
-        if let Some(tunnels_value) = table.get("tunnels") {
-            if let Some(tunnels_table) = tunnels_value.as_table() {
-                // With preserve_order feature, this iteration maintains order
-                for (key, value) in tunnels_table {
-                    let tunnel_config: TunnelConfig = value.clone().try_into()?;
-                    tunnels.push((key.clone(), tunnel_config));
-                }
-            }
-        }
-
-        let mut schedules = Vec::new();
-
-        if let Some(tasks_value) = table.get("schedules") {
-            if let Some(tasks_table) = tasks_value.as_table() {
-                // With preserve_order feature, this iteration maintains order
-                for (key, value) in tasks_table {
-                    let task_config: ScheduledTaskConfig = value.clone().try_into()?;
-                    schedules.push((key.clone(), task_config));
-                }
-            }
-        }
-
-        Ok(Config {
-            tunnels,
-            schedules,
-            path,
-        })
-    }
-
-    /// Save configuration to the default location
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let config_path = get_config_path()?;
+    /// Save configuration to the provided paths.
+    pub fn save_with(&self, paths: &dyn AppPaths) -> Result<(), Box<dyn std::error::Error>> {
+        let config_path = paths.config_path();
 
         // Create the directory if it doesn't exist
         if let Some(parent) = config_path.parent() {
@@ -167,9 +127,51 @@ impl Config {
     }
 
     /// Get the configured PATH or return default
+    /// Return configured PATH or fall back to current process PATH (cross-platform).
     pub fn get_path(&self) -> String {
-        self.path.clone().unwrap_or_else(|| {
-            "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/opt/homebrew/bin".to_string()
+        if let Some(path) = &self.path {
+            return path.clone();
+        }
+        std::env::var("PATH").unwrap_or_default()
+    }
+
+    /// Convert from toml::Value preserving order
+    fn from_toml_value(value: toml::Value) -> Result<Self, Box<dyn std::error::Error>> {
+        let table = value.as_table().ok_or("Root must be a table")?;
+
+        let path = table
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let mut tunnels = Vec::new();
+
+        if let Some(tunnels_value) = table.get("tunnels") {
+            if let Some(tunnels_table) = tunnels_value.as_table() {
+                // With preserve_order feature, this iteration maintains order
+                for (key, value) in tunnels_table {
+                    let tunnel_config: TunnelConfig = value.clone().try_into()?;
+                    tunnels.push((key.clone(), tunnel_config));
+                }
+            }
+        }
+
+        let mut schedules = Vec::new();
+
+        if let Some(tasks_value) = table.get("schedules") {
+            if let Some(tasks_table) = tasks_value.as_table() {
+                // With preserve_order feature, this iteration maintains order
+                for (key, value) in tasks_table {
+                    let task_config: ScheduledTaskConfig = value.clone().try_into()?;
+                    schedules.push((key.clone(), task_config));
+                }
+            }
+        }
+
+        Ok(Config {
+            tunnels,
+            schedules,
+            path,
         })
     }
 }
@@ -251,50 +253,7 @@ impl Default for Config {
         Self {
             tunnels,
             schedules,
-            path: Some(
-                "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/opt/homebrew/bin".to_string(),
-            ),
-        }
-    }
-}
-
-/// Get the path to the config file (~/.config/something_bg/config.toml)
-fn get_config_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let home_dir = std::env::var("HOME").map_err(|_| "HOME environment variable not set")?;
-
-    let config_path = PathBuf::from(home_dir)
-        .join(".config")
-        .join("something_bg")
-        .join("config.toml");
-
-    Ok(config_path)
-}
-
-/// Handler to open the config folder in Finder
-pub fn open_config_folder_handler() {
-    use log::{error, info};
-    use std::process::Command;
-
-    match get_config_path() {
-        Ok(config_path) => {
-            // Ensure the config file exists by loading (which creates it if needed)
-            if let Err(e) = Config::load() {
-                error!("Failed to ensure config exists: {}", e);
-                return;
-            }
-
-            // Use 'open -R' to reveal the file in Finder
-            match Command::new("open").arg("-R").arg(&config_path).spawn() {
-                Ok(_) => {
-                    info!("Opened config folder in Finder");
-                }
-                Err(e) => {
-                    error!("Failed to open config folder: {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            error!("Failed to get config path: {}", e);
+            path: None,
         }
     }
 }

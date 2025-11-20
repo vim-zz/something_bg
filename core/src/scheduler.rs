@@ -17,6 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::config::ScheduledTaskConfig;
+use crate::platform::AppPaths;
 
 /// Structure for persisting scheduled task state
 #[derive(Clone, Serialize, Deserialize)]
@@ -25,19 +26,8 @@ pub(crate) struct TaskState {
     next_run: Option<DateTime<Local>>,
 }
 
-/// Get the path to the state file for persisting task run times
-fn get_state_file_path() -> PathBuf {
-    let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push(".config");
-    path.push("something_bg");
-    path.push("task_state.toml");
-    path
-}
-
 /// Load persisted task states from disk
-fn load_task_states() -> HashMap<String, TaskState> {
-    let path = get_state_file_path();
-
+fn load_task_states(path: &PathBuf) -> HashMap<String, TaskState> {
     if !path.exists() {
         return HashMap::new();
     }
@@ -61,9 +51,7 @@ fn load_task_states() -> HashMap<String, TaskState> {
 }
 
 /// Save task states to disk
-fn save_task_states(states: &HashMap<String, TaskState>) {
-    let path = get_state_file_path();
-
+fn save_task_states(path: &PathBuf, states: &HashMap<String, TaskState>) {
     // Ensure the directory exists
     if let Some(parent) = path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
@@ -256,17 +244,20 @@ pub struct TaskScheduler {
     path: String,
     running: Arc<Mutex<bool>>,
     states: Arc<Mutex<HashMap<String, TaskState>>>,
+    state_file: PathBuf,
 }
 
 impl TaskScheduler {
     /// Create a new TaskScheduler
-    pub fn new(path: String) -> Self {
-        let states = load_task_states();
+    pub fn new<P: AppPaths>(path: String, paths: &P) -> Self {
+        let state_file = paths.state_path();
+        let states = load_task_states(&state_file);
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
             path,
             running: Arc::new(Mutex::new(false)),
             states: Arc::new(Mutex::new(states)),
+            state_file,
         }
     }
 
@@ -307,7 +298,7 @@ impl TaskScheduler {
         drop(states);
 
         // Save to disk
-        save_task_states(&states_map);
+        save_task_states(&self.state_file, &states_map);
     }
 
     /// Get a copy of a specific task's state
@@ -336,6 +327,7 @@ impl TaskScheduler {
         let path = self.path.clone();
         let running = Arc::clone(&self.running);
         let states = Arc::clone(&self.states);
+        let state_file = self.state_file.clone();
 
         thread::spawn(move || {
             info!("Task scheduler started");
@@ -379,7 +371,7 @@ impl TaskScheduler {
                     *states_guard = states_map.clone();
                     drop(states_guard);
 
-                    save_task_states(&states_map);
+                    save_task_states(&state_file, &states_map);
                 }
 
                 // Check every 30 seconds
