@@ -76,11 +76,13 @@ pub fn show_about_window() {
         return;
     };
 
-    // Clear any previous window (this properly deallocates the old window)
-    // We create a fresh window each time to avoid issues with closed windows
-    ABOUT_WINDOW.with(|cell| {
-        *cell.borrow_mut() = None;
-    });
+    // If a window already exists, bring it to front and bail to avoid duplicates.
+    if let Some(existing) = ABOUT_WINDOW.with(|cell| cell.borrow().clone()) {
+        existing.makeKeyAndOrderFront(None);
+        let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+        app.activate();
+        return;
+    }
 
     // Create new window and URL helper
     let window = create_about_window(mtm);
@@ -114,8 +116,7 @@ pub fn show_about_window() {
 /// Creates the About window with proper frame and style
 fn create_about_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(300.0, 280.0));
-    let style_mask =
-        NSWindowStyleMask::Titled | NSWindowStyleMask::Closable | NSWindowStyleMask::Miniaturizable;
+    let style_mask = NSWindowStyleMask::Titled | NSWindowStyleMask::Closable;
 
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
