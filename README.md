@@ -67,6 +67,16 @@ You’ll get a status icon in the system tray:
 ```
 The script builds an Ubuntu-based image with GTK/AppIndicator dev packages and runs `cargo check -p something_bg_linux` inside it. Pass extra cargo args after the script if needed.
 
+### Windows (tray shell, cross-compiling from macOS/Linux)
+
+Prereqs: Docker.
+
+Cross-check with the bundled cargo-xwin image:
+```bash
+./scripts/windows-cargo-check.sh
+```
+This builds `something_bg_windows` for `x86_64-pc-windows-msvc` using the Windows SDK bundled in the Docker image. Pass extra cargo args after the script if needed.
+
 3. Move the app to your Applications folder:
 ```bash
 cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/

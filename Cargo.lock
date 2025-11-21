@@ -1544,6 +1544,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "something_bg_windows"
+version = "1.4.0"
+dependencies = [
+ "ctrlc",
+ "dirs 5.0.1",
+ "env_logger",
+ "log",
+ "something_bg_core",
+ "tray-icon",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

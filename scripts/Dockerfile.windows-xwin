@@ -1,0 +1,9 @@
+# Windows MSVC cross-check image for `cargo xwin`.
+# Uses the cargo-xwin base which bundles the Windows10 SDK + VC++ libs.
+
+FROM ghcr.io/rust-cross/cargo-xwin:latest
+
+WORKDIR /workspace
+
+# Default command checks the Windows tray crate.
+CMD ["cargo", "xwin", "check", "-p", "something_bg_windows", "--target", "x86_64-pc-windows-msvc"]

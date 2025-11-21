@@ -1,0 +1,12 @@
+[package]
+name = "something_bg_windows"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+something_bg_core = { path = "../core" }
+log = "0.4"
+env_logger = "0.11"
+ctrlc = "3.4"
+dirs = "5.0"
+tray-icon = { version = "0.21.2", default-features = true }
