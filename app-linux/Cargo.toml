@@ -1,0 +1,18 @@
+[package]
+name = "something_bg_linux"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+something_bg_core = { path = "../core" }
+log = "0.4"
+env_logger = "0.11"
+ctrlc = "3.4"
+serde = { version = "1.0", features = ["derive"] }
+toml = { version = "0.8", features = ["preserve_order"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+tray-icon = { version = "0.21.2", default-features = true }
+muda = { version = "0.17.1", default-features = true }
+gtk = "0.18"
+glib = "0.18"

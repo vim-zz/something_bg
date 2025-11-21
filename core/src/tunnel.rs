@@ -19,6 +19,7 @@ pub struct TunnelCommand {
 
 /// Manages the lifecycle of tunnels (start, stop, cleanup).
 /// Replaces the global static variables with owned fields.
+#[derive(Clone)]
 pub struct TunnelManager {
     pub commands_config: Arc<Mutex<HashMap<String, TunnelCommand>>>,
     pub active_tunnels: Arc<Mutex<HashSet<String>>>,

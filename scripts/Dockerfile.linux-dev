@@ -1,0 +1,41 @@
+# Minimal Linux dev image for running `cargo check -p something_bg_linux`
+# Includes GTK3 + AppIndicator build deps and Rust toolchain.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      build-essential \
+      pkg-config \
+      libgtk-3-dev \
+      libayatana-appindicator3-dev \
+      libssl-dev \
+      libx11-dev \
+      libxcb-render0-dev \
+      libxcb-shape0-dev \
+      libxcb-xfixes0-dev \
+      libxrandr-dev \
+      libxxf86vm-dev \
+      libxi-dev \
+      libdbus-1-dev \
+      git && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install stable Rust toolchain
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain stable && \
+    rustup component add clippy rustfmt
+
+WORKDIR /workspace
+
+# Default command runs cargo check for the Linux crate
+CMD ["cargo", "check", "-p", "something_bg_linux"]

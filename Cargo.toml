@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "app-macos"]
+members = ["core", "app-macos", "app-linux"]
 resolver = "2"
 
 [workspace.package]

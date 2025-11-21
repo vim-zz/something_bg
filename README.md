@@ -12,6 +12,7 @@ If you’ve ever left a Terminal window open _“just to keep a command running�
 
 - `core/` — platform-agnostic logic (config, scheduler, tunnel management).
 - `app-macos/` — macOS shell (tray UI, oslog, wake detection) that links to `core`.
+- `app-linux/` — Linux shell (currently a CLI loop) that links to `core`.
 
 ## Features
 
@@ -37,10 +38,34 @@ git clone https://github.com/vim-zz/something_bg.git
 cd something_bg
 ```
 
-2. Build and bundle the application (run from repo root):
+2. Build and bundle the macOS application (run from repo root):
 ```bash
 cargo bundle --release -p something_bg
 ```
+
+### Linux (tray shell)
+
+Prereqs (Ubuntu/Debian):
+```bash
+sudo apt install libayatana-appindicator3-dev libgtk-3-dev
+```
+
+Run the tray app:
+```bash
+cargo run -p something_bg_linux
+```
+
+You’ll get a status icon in the system tray:
+- Click tunnels to toggle them on/off (checkboxes reflect state)
+- “Run now” under each scheduled task runs it immediately
+- “Open config folder” opens `~/.config/something_bg/`
+- “Quit” cleans up tunnels and stops the scheduler
+
+#### Run cargo check in Docker (no local GTK deps needed)
+```bash
+./scripts/linux-cargo-check.sh
+```
+The script builds an Ubuntu-based image with GTK/AppIndicator dev packages and runs `cargo check -p something_bg_linux` inside it. Pass extra cargo args after the script if needed.
 
 3. Move the app to your Applications folder:
 ```bash
