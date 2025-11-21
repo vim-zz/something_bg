@@ -11,6 +11,10 @@ identifier = "com.vim-zz.something-bg"
 name = "Something in the Background"
 resources = ["../resources/*.png", "../resources/images/*.png"]
 
+# Explicit bin-specific override so cargo-bundle names the .app correctly.
+[package.metadata.bundle.bin.something_bg]
+name = "Something in the Background"
+
 [dependencies]
 something_bg_core = { path = "../core" }
 objc2 = "0.6"

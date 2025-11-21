@@ -2,7 +2,7 @@
 
 A lightweight native macOS utility for running scripts and commands in the background - powered by Rust.
 
-`something_bg` is a tiny macOS status-bar app designed to take any script or command you already use and run it quietly in the background. No terminals to keep open, no remembering where scripts live, no complicated setup.
+`something_bg` is a tiny menu/tray app (macOS, Linux, Windows) designed to take any script or command you already use and run it quietly in the background. No terminals to keep open, no remembering where scripts live, no complicated setup.
 
 If you’ve ever left a Terminal window open _“just to keep a command running”_, this app is for you.
 
@@ -12,7 +12,8 @@ If you’ve ever left a Terminal window open _“just to keep a command running�
 
 - `core/` — platform-agnostic logic (config, scheduler, tunnel management).
 - `app-macos/` — macOS shell (tray UI, oslog, wake detection) that links to `core`.
-- `app-linux/` — Linux shell (currently a CLI loop) that links to `core`.
+- `app-linux/` — Linux tray shell that links to `core`.
+- `app-windows/` — Windows tray shell that links to `core`.
 
 ## Features
 
@@ -24,13 +25,12 @@ If you’ve ever left a Terminal window open _“just to keep a command running�
 
 ## Installation
 
-### Prerequisites
+### macOS (native bundle)
 
+Prereqs:
 - Rust and Cargo (install via [rustup](https://rustup.rs/))
 - Xcode Command Line Tools
-- cargo-bundle (install with `cargo install cargo-bundle`)
-
-### Building from Source
+- cargo-bundle (`cargo install cargo-bundle`)
 
 1. Clone the repository:
 ```bash
@@ -40,7 +40,15 @@ cd something_bg
 
 2. Build and bundle the macOS application (run from repo root):
 ```bash
-cargo bundle --release -p something_bg
+cargo bundle --release --bin something_bg
+```
+
+3. Install or run
+```bash
+# run from build location
+open "target/release/bundle/osx/Something in the Background.app"
+# or install
+cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/
 ```
 
 ### Linux (tray shell)
@@ -71,18 +79,17 @@ The script builds an Ubuntu-based image with GTK/AppIndicator dev packages and r
 
 Prereqs: Docker.
 
-Cross-check with the bundled cargo-xwin image:
+Cross-check/build with the bundled cargo-xwin image:
 ```bash
 ./scripts/windows-cargo-check.sh
 ```
 This builds `something_bg_windows` for `x86_64-pc-windows-msvc` using the Windows SDK bundled in the Docker image. Pass extra cargo args after the script if needed.
 
-3. Move the app to your Applications folder:
-```bash
-cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/
+To run on Windows natively, build on Windows with a Rust toolchain and the `tray-icon` deps:
+```powershell
+cargo build -p something_bg_windows --release
 ```
-
-Launch the app from your Applications folder. It will appear as a menu bar item.
+Then launch the produced `target\release\something_bg_windows.exe`.
 
 ## Configuration
 
