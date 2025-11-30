@@ -286,9 +286,7 @@ Future releases may include:
 - Task dependencies and chains
 - Export/import of scheduled task sets
 
----
-
-**Full Changelog:** [CHANGELOG.md](CHANGELOG.md)
+----
 
 **Download:** See release assets below
 
@@ -417,9 +415,7 @@ Future releases will focus on:
 - GUI configuration editor
 - Export/import of tunnel configurations
 
----
-
-**Full Changelog:** [CHANGELOG.md](CHANGELOG.md)
+----
 
 **Download:** See release assets below
 

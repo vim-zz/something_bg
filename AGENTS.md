@@ -21,7 +21,7 @@
 - `cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/` — install the bundle locally for manual verification.
 
 ## Versioning & Releases
-- When work warrants a new build (user-visible changes, dependency updates, or release packaging), bump the crate version in `Cargo.toml` and update related artifacts (`CHANGELOG.md`/`RELEASE_NOTES.md`) proactively without waiting for a prompt.
+- When work warrants a new build (user-visible changes, dependency updates, or release packaging), bump the crate version in `Cargo.toml` and update `RELEASE_NOTES.md` proactively without waiting for a prompt.
 - Follow SemVer, keep release notes concise, and ensure bundle metadata stays in sync with the version.
 
 ## Coding Style & Naming Conventions
