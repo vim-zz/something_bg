@@ -3,7 +3,7 @@
 // Cron-based task scheduler for Something in the Background.
 // Handles scheduling and execution of periodic tasks based on cron expressions.
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Datelike, Local};
 use croner::Cron;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -512,11 +512,49 @@ pub fn cron_to_human_readable(cron_pattern: &str) -> String {
 /// Format a DateTime for display
 pub fn format_last_run(last_run: &Option<DateTime<Local>>) -> String {
     match last_run {
-        Some(dt) => {
-            // Format as a readable date/time string in 24-hour format
-            // Example: "Jan 13, 2025 at 15:30"
-            dt.format("%b %d, %Y at %H:%M").to_string()
-        }
+        Some(dt) => format_relative_datetime(dt),
         None => "Never".to_string(),
     }
+}
+
+/// Human-friendly relative datetime like "tomorrow at 10:00" or
+/// "in 3 weeks (on Dec 21st, 2025 at 10:00)".
+fn format_relative_datetime(dt: &DateTime<Local>) -> String {
+    let now = Local::now();
+    let date_diff = dt.date_naive().signed_duration_since(now.date_naive());
+    let diff_days = date_diff.num_days();
+    let time_part = dt.format("%H:%M").to_string();
+
+    match diff_days {
+        0 => format!("today at {time_part}"),
+        1 => format!("tomorrow at {time_part}"),
+        -1 => format!("yesterday at {time_part}"),
+        2..=6 => format!("on {} at {time_part}", dt.format("%A")),
+        -6..=-2 => format!("last {} at {time_part}", dt.format("%A")),
+        _ => {
+            let date_str = if dt.year() == now.year() {
+                format!("{} {}", dt.format("%b"), ordinal(dt.day()))
+            } else {
+                format!("{} {}, {}", dt.format("%b"), ordinal(dt.day()), dt.year())
+            };
+
+            let relative = humantime_fmt::format_relative((*dt).into());
+            format!("{relative} (on {date_str} at {time_part})")
+        }
+    }
+}
+
+/// Return ordinal suffix for a day (1st, 2nd, 3rd, 4th, ...).
+fn ordinal(day: u32) -> String {
+    let suffix = match day % 100 {
+        11 | 12 | 13 => "th",
+        _ => match day % 10 {
+            1 => "st",
+            2 => "nd",
+            3 => "rd",
+            _ => "th",
+        },
+    };
+
+    format!("{day}{suffix}")
 }

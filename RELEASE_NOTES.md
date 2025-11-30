@@ -1,5 +1,14 @@
 # Release Notes - Something in the Background
 
+## v1.4.1
+
+**Release Date:** November 30, 2025
+
+### ⏱️ Friendlier Scheduled Task Times
+
+- Scheduled task "Next run" and "Last run" entries now show natural, relative phrasing like "tomorrow at 10:00" or "next Monday at 09:30".
+- Menu entries refresh on every open, so times stay accurate to the moment you click the status bar.
+
 ## v1.3.2
 
 **Release Date:** November 17, 2025
