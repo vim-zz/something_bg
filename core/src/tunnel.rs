@@ -74,10 +74,9 @@ impl TunnelManager {
                     let new_path = cmd
                         .get_envs()
                         .find(|(key, _)| key == &OsStr::new("PATH"))
-                        .map(|(_, value)| {
+                        .and_then(|(_, value)| {
                             value.map(|path| format!("{}:{}", config_path, path.to_string_lossy()))
                         })
-                        .flatten()
                         .unwrap_or_else(|| config_path.clone());
 
                     debug!("Update PATH to: {new_path}");

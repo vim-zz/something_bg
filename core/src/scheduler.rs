@@ -32,7 +32,7 @@ fn load_task_states(path: &PathBuf) -> HashMap<String, TaskState> {
         return HashMap::new();
     }
 
-    match fs::read_to_string(&path) {
+    match fs::read_to_string(path) {
         Ok(contents) => match toml::from_str(&contents) {
             Ok(states) => {
                 info!("Loaded task states from {}", path.display());
@@ -53,16 +53,16 @@ fn load_task_states(path: &PathBuf) -> HashMap<String, TaskState> {
 /// Save task states to disk
 fn save_task_states(path: &PathBuf, states: &HashMap<String, TaskState>) {
     // Ensure the directory exists
-    if let Some(parent) = path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            error!("Failed to create state directory: {}", e);
-            return;
-        }
+    if let Some(parent) = path.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        error!("Failed to create state directory: {}", e);
+        return;
     }
 
     match toml::to_string_pretty(&states) {
         Ok(toml_content) => {
-            if let Err(e) = fs::write(&path, toml_content) {
+            if let Err(e) = fs::write(path, toml_content) {
                 error!("Failed to write task state file: {}", e);
             } else {
                 debug!("Saved task states to {}", path.display());
@@ -547,7 +547,7 @@ fn format_relative_datetime(dt: &DateTime<Local>) -> String {
 /// Return ordinal suffix for a day (1st, 2nd, 3rd, 4th, ...).
 fn ordinal(day: u32) -> String {
     let suffix = match day % 100 {
-        11 | 12 | 13 => "th",
+        11..=13 => "th",
         _ => match day % 10 {
             1 => "st",
             2 => "nd",

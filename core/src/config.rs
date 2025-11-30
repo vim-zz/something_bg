@@ -146,25 +146,25 @@ impl Config {
 
         let mut tunnels = Vec::new();
 
-        if let Some(tunnels_value) = table.get("tunnels") {
-            if let Some(tunnels_table) = tunnels_value.as_table() {
-                // With preserve_order feature, this iteration maintains order
-                for (key, value) in tunnels_table {
-                    let tunnel_config: TunnelConfig = value.clone().try_into()?;
-                    tunnels.push((key.clone(), tunnel_config));
-                }
+        if let Some(tunnels_value) = table.get("tunnels")
+            && let Some(tunnels_table) = tunnels_value.as_table()
+        {
+            // With preserve_order feature, this iteration maintains order
+            for (key, value) in tunnels_table {
+                let tunnel_config: TunnelConfig = value.clone().try_into()?;
+                tunnels.push((key.clone(), tunnel_config));
             }
         }
 
         let mut schedules = Vec::new();
 
-        if let Some(tasks_value) = table.get("schedules") {
-            if let Some(tasks_table) = tasks_value.as_table() {
-                // With preserve_order feature, this iteration maintains order
-                for (key, value) in tasks_table {
-                    let task_config: ScheduledTaskConfig = value.clone().try_into()?;
-                    schedules.push((key.clone(), task_config));
-                }
+        if let Some(tasks_value) = table.get("schedules")
+            && let Some(tasks_table) = tasks_value.as_table()
+        {
+            // With preserve_order feature, this iteration maintains order
+            for (key, value) in tasks_table {
+                let task_config: ScheduledTaskConfig = value.clone().try_into()?;
+                schedules.push((key.clone(), task_config));
             }
         }
 
