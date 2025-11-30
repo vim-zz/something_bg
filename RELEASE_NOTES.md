@@ -8,6 +8,14 @@
 
 - Bundling now runs from the macOS crate so the `circle.icns` app icon is included again; Finder/Launchpad show the proper icon.
 
+## v1.5.2
+
+**Release Date:** November 30, 2025
+
+### 🔠 Menu Polish
+
+- “Next run” and “Last run” entries now start with capitalized relative time text for better readability in the scheduled task submenus.
+
 ## v1.5.0
 
 **Release Date:** November 30, 2025

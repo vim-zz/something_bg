@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Ensured macOS bundles include the app icon by bundling from the mac crate (restores Finder/Launchpad icon rendering).
 
+## [1.5.2] - 2025-11-30
+
+### Changed
+- Capitalized scheduled task time strings (“Next run”/“Last run”) for clearer menu display.
+
 ## [1.5.0] - 2025-11-30
 
 ### Changed

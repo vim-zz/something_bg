@@ -525,7 +525,7 @@ fn format_relative_datetime(dt: &DateTime<Local>) -> String {
     let diff_days = date_diff.num_days();
     let time_part = dt.format("%H:%M").to_string();
 
-    match diff_days {
+    let phrase = match diff_days {
         0 => format!("today at {time_part}"),
         1 => format!("tomorrow at {time_part}"),
         -1 => format!("yesterday at {time_part}"),
@@ -541,7 +541,9 @@ fn format_relative_datetime(dt: &DateTime<Local>) -> String {
             let relative = humantime_fmt::format_relative((*dt).into());
             format!("{relative} (on {date_str} at {time_part})")
         }
-    }
+    };
+
+    capitalize_first(&phrase)
 }
 
 /// Return ordinal suffix for a day (1st, 2nd, 3rd, 4th, ...).
@@ -557,4 +559,13 @@ fn ordinal(day: u32) -> String {
     };
 
     format!("{day}{suffix}")
+}
+
+/// Capitalize the first ASCII letter, leaving the rest unchanged.
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
 }
