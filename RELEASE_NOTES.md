@@ -1,6 +1,6 @@
 # Release Notes - Something in the Background
 
-## v1.4.1
+## v1.5.0
 
 **Release Date:** November 30, 2025
 

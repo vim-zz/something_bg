@@ -1502,7 +1502,7 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "something_bg"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "core-foundation",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "something_bg_core"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "croner",
@@ -1534,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "something_bg_linux"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "ctrlc",
@@ -1552,7 +1552,7 @@ dependencies = [
 
 [[package]]
 name = "something_bg_windows"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
  "ctrlc",
  "dirs 5.0.1",
