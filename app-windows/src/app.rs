@@ -49,7 +49,10 @@ impl AppState {
         scheduler.save_states();
         info!("Saved initial task states to disk");
         scheduler.start();
-        info!("Task scheduler started with {} tasks", config.schedules.len());
+        info!(
+            "Task scheduler started with {} tasks",
+            config.schedules.len()
+        );
         scheduler.check_and_run_missed_tasks();
 
         (

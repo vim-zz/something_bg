@@ -5,6 +5,11 @@ All notable changes to Something in the Background will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2025-11-30
+
+### Fixed
+- Ensured macOS bundles include the app icon by bundling from the mac crate (restores Finder/Launchpad icon rendering).
+
 ## [1.5.0] - 2025-11-30
 
 ### Changed

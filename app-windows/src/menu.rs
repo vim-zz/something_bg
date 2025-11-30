@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use log::debug;
 use something_bg_core::config::{Config, ScheduledTaskConfig, TunnelConfig};
-use something_bg_core::scheduler::{cron_to_human_readable, format_last_run, TaskScheduler};
+use something_bg_core::scheduler::{TaskScheduler, cron_to_human_readable, format_last_run};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 
 pub struct MenuHandles {
@@ -60,8 +60,7 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
     for (key, task) in &config.schedules {
         add_group_header_for_task(&menu, task);
 
-        let schedule_line =
-            format!("Schedule: {}", cron_to_human_readable(&task.cron_schedule));
+        let schedule_line = format!("Schedule: {}", cron_to_human_readable(&task.cron_schedule));
         let schedule_item = MenuItem::new(&schedule_line, false, None);
         if let Err(e) = menu.append(&schedule_item) {
             debug!("failed to append schedule label: {e}");

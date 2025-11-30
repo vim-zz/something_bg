@@ -6,8 +6,8 @@ mod paths;
 
 use std::process::Command;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -16,11 +16,11 @@ use ctrlc;
 use env_logger;
 use log::{error, info, warn};
 use something_bg_core::platform::AppPaths;
-use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use tray_icon::menu::MenuEvent;
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use crate::app::AppState;
-use crate::menu::{build_id_lookup, build_menu, refresh_task_labels, MenuAction, MenuHandles};
+use crate::menu::{MenuAction, MenuHandles, build_id_lookup, build_menu, refresh_task_labels};
 
 fn main() {
     env_logger::init();
@@ -153,7 +153,10 @@ impl EventLoop {
 
 fn open_config(paths: &Arc<crate::paths::WindowsPaths>) {
     let config_path = paths.config_path();
-    let parent = config_path.parent().map(|p| p.to_path_buf()).unwrap_or(config_path);
+    let parent = config_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or(config_path);
 
     info!("opening config folder at {:?}", parent);
     let result = Command::new("explorer.exe").arg(&parent).spawn();
@@ -165,10 +168,7 @@ fn open_config(paths: &Arc<crate::paths::WindowsPaths>) {
 fn open_about() {
     let url = "https://github.com/vim-zz/something_bg";
     info!("opening project page: {url}");
-    if let Err(e) = Command::new("cmd")
-        .args(["/C", "start", url])
-        .spawn()
-    {
+    if let Err(e) = Command::new("cmd").args(["/C", "start", url]).spawn() {
         warn!("failed to open browser: {e}");
     }
 }

@@ -7,8 +7,8 @@ mod paths;
 
 use std::process::Command;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,11 +18,11 @@ use env_logger;
 use gtk::glib;
 use log::{error, info, warn};
 use something_bg_core::platform::AppPaths;
-use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use tray_icon::menu::MenuEvent;
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use crate::app::AppState;
-use crate::menu::{build_id_lookup, build_menu, refresh_task_labels, MenuAction, MenuHandles};
+use crate::menu::{MenuAction, MenuHandles, build_id_lookup, build_menu, refresh_task_labels};
 
 fn main() {
     env_logger::init();
@@ -167,7 +167,10 @@ impl EventLoop {
 
 fn open_config(paths: &std::sync::Arc<crate::paths::LinuxPaths>) {
     let config_path = paths.config_path();
-    let parent = config_path.parent().map(|p| p.to_path_buf()).unwrap_or(config_path);
+    let parent = config_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or(config_path);
 
     info!("opening config folder at {:?}", parent);
     let result = Command::new("xdg-open").arg(&parent).spawn();

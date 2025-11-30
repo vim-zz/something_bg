@@ -1,5 +1,13 @@
 # Release Notes - Something in the Background
 
+## v1.5.1
+
+**Release Date:** November 30, 2025
+
+### 🖼️ macOS Bundle Icon Restored
+
+- Bundling now runs from the macOS crate so the `circle.icns` app icon is included again; Finder/Launchpad show the proper icon.
+
 ## v1.5.0
 
 **Release Date:** November 30, 2025
