@@ -38,9 +38,9 @@ git clone https://github.com/vim-zz/something_bg.git
 cd something_bg
 ```
 
-2. Build and bundle the macOS application (run from repo root):
+2. Build and bundle the macOS application (uses the macOS crate manifest so icons/identifier are applied):
 ```bash
-cargo bundle --release --bin something_bg
+./scripts/bundle-macos.sh
 ```
 
 3. Install or run

@@ -1,0 +1,4 @@
+[build]
+# Use the workspace-level target directory so `cargo bundle` (run from app-macos)
+# finds the already-built binaries in `../target`.
+target-dir = "../target"
