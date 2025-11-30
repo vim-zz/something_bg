@@ -6,7 +6,7 @@ A lightweight native macOS utility for running scripts and commands in the backg
 
 If you’ve ever left a Terminal window open _“just to keep a command running”_, this app is for you.
 
-<img align="right" src="something_bg.png" alt="Menu Bar Screenshot" width="400">
+<img src="something_bg_menu.png" alt="Menu Bar Screenshot" width="400">
 
 ## Repository layout
 
