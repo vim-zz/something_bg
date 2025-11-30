@@ -9,6 +9,17 @@
 - Scheduled task "Next run" and "Last run" entries now show natural, relative phrasing like "tomorrow at 10:00" or "next Monday at 09:30".
 - Menu entries refresh on every open, so times stay accurate to the moment you click the status bar.
 
+## v1.4.0
+
+**Release Date:** November 21, 2025
+
+### 🌍 Cross-Platform Support
+
+- Refactored into a workspace with a shared `something_bg_core` crate and per-platform shells.
+- Added Linux status bar build (tray-icon + muda) with parity to the macOS menu behavior.
+- Added Windows tray app build with platform-safe entry points and menu wiring.
+- Updated docs and metadata to describe the new multi-platform layout and workflows.
+
 ## v1.3.2
 
 **Release Date:** November 17, 2025
