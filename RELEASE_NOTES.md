@@ -1,5 +1,15 @@
 # Release Notes - Something in the Background
 
+## v1.6.0
+
+**Release Date:** December 3, 2025
+
+### 💤 Auto-Recover Tunnels After Sleep (All Platforms)
+
+- macOS: existing wake observer now also restarts any active tunnels before catching up on missed scheduled tasks.
+- Linux & Windows: added wake detection (based on sleep gaps) to recycle active tunnels and refresh tray icons/tasks automatically.
+- Core tunnel manager gains a restart helper to stop/start active tunnels safely.
+
 ## v1.5.1
 
 **Release Date:** November 30, 2025

@@ -6,6 +6,7 @@ use std::ffi::OsStr;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use log::{debug, error, info, warn};
 
@@ -150,6 +151,33 @@ impl TunnelManager {
         // Clear all active
         active.clear();
         debug!("All tunnels cleaned up");
+    }
+
+    /// Restart all tunnels currently marked as active. Useful after system wake.
+    pub fn restart_active_tunnels(&self) {
+        // Snapshot active tunnel keys to avoid holding the lock while restarting.
+        let active_keys: Vec<String> = {
+            let tunnels = self.active_tunnels.lock().unwrap();
+            tunnels.iter().cloned().collect()
+        };
+
+        if active_keys.is_empty() {
+            info!("No active tunnels to restart after wake");
+            return;
+        }
+
+        info!(
+            "Restarting {} active tunnel(s) after wake: {:?}",
+            active_keys.len(),
+            active_keys
+        );
+
+        for key in active_keys {
+            // Stop then start each tunnel to re-establish connections after sleep.
+            let _ = self.toggle(&key, false);
+            thread::sleep(Duration::from_millis(150));
+            let _ = self.toggle(&key, true);
+        }
     }
 }
 

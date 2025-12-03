@@ -62,6 +62,7 @@ fn main() {
         idle_icon,
         running,
         last_task_refresh: Instant::now(),
+        last_tick: Instant::now(),
     };
 
     looper.run();
@@ -76,6 +77,7 @@ struct EventLoop {
     idle_icon: Icon,
     running: Arc<AtomicBool>,
     last_task_refresh: Instant,
+    last_tick: Instant,
 }
 
 impl EventLoop {
@@ -83,6 +85,12 @@ impl EventLoop {
         info!("tray icon ready; entering event loop");
 
         while self.running.load(Ordering::SeqCst) {
+            let elapsed = self.last_tick.elapsed();
+            if elapsed > Duration::from_secs(30) {
+                self.on_wake(elapsed);
+            }
+            self.last_tick = Instant::now();
+
             while let Ok(event) = MenuEvent::receiver().try_recv() {
                 self.handle_menu_event(event.id);
             }
@@ -97,6 +105,18 @@ impl EventLoop {
 
         info!("exiting event loop; cleaning up");
         self.app_state.cleanup();
+    }
+
+    fn on_wake(&mut self, gap: Duration) {
+        info!(
+            "Detected system wake (gap {:?}); recycling active tunnels",
+            gap
+        );
+        self.app_state.handle_wake();
+
+        let any_active = self.app_state.tunnel_manager.has_active_tunnels();
+        self.update_icon(any_active);
+        refresh_task_labels(&self.handles, self.app_state.scheduler.as_ref());
     }
 
     fn handle_menu_event(&mut self, id: tray_icon::menu::MenuId) {

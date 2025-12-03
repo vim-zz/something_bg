@@ -109,7 +109,12 @@ impl App {
 
     /// Called when the system wakes from sleep to check for and run any missed scheduled tasks
     pub fn handle_wake_from_sleep(&self) {
-        info!("System woke from sleep - checking for missed scheduled tasks");
+        info!("System woke from sleep - restarting active tunnels and checking tasks");
+
+        // Recycle any tunnels that were active before sleep to ensure fresh connections.
+        self.tunnel_manager.restart_active_tunnels();
+
+        // Resume scheduled task handling after wake.
         self.task_scheduler.check_and_run_missed_tasks();
     }
 

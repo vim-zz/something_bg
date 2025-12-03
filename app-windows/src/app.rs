@@ -69,4 +69,11 @@ impl AppState {
         self.tunnel_manager.cleanup();
         self.scheduler.stop();
     }
+
+    /// Restart active tunnels and catch up on missed tasks after a detected wake.
+    pub fn handle_wake(&self) {
+        info!("Detected wake from sleep; restarting active tunnels and checking tasks");
+        self.tunnel_manager.restart_active_tunnels();
+        self.scheduler.check_and_run_missed_tasks();
+    }
 }
