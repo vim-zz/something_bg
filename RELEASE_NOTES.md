@@ -1,5 +1,15 @@
 # Release Notes - Something in the Background
 
+## v1.7.0
+
+**Release Date:** December 17, 2025
+
+### 🔌 Disconnect All Menu Item
+
+- Added "Disconnect All" menu item to disconnect all active tunnels at once
+- Item appears between "Open Config Folder" and "About"
+- Grayed out when no tunnels are connected, enabled when at least one tunnel is active
+
 ## v1.6.0
 
 **Release Date:** December 3, 2025

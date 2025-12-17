@@ -29,6 +29,9 @@ fn load_config() -> Config {
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
 const ICON_ACTIVE: &str = "●"; // Filled circle for active
 
+// Tag to identify the "Disconnect All" menu item
+const DISCONNECT_ALL_TAG: isize = 9999;
+
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
     // SAFETY:
@@ -82,6 +85,11 @@ define_class!(
         #[unsafe(method(exitApplication:))]
         fn exit_application(&self, _item: &NSMenuItem) {
             exit_application_handler();
+        }
+
+        #[unsafe(method(disconnectAll:))]
+        fn disconnect_all(&self, _item: &NSMenuItem) {
+            disconnect_all_handler();
         }
     }
 );
@@ -205,6 +213,66 @@ fn toggle_tunnel_handler(item: &NSMenuItem) {
             if let Some(status_item) = app.get_status_item() {
                 if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
                     update_status_item_title(&status_item, any_active, mtm);
+
+                    // Enable/disable "Disconnect All" menu item based on active state
+                    if let Some(menu) = status_item.menu(mtm) {
+                        let num_items = menu.numberOfItems();
+                        for i in 0..num_items {
+                            if let Some(menu_item) = menu.itemAtIndex(i) {
+                                if menu_item.tag() == DISCONNECT_ALL_TAG {
+                                    menu_item.setEnabled(any_active);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Handler to disconnect all active tunnels
+fn disconnect_all_handler() {
+    use log::info;
+
+    if let Some(app) = GLOBAL_APP.get() {
+        // Get all active tunnel keys
+        let active_keys: Vec<String> = {
+            let tunnels = app.tunnel_manager.active_tunnels.lock().unwrap();
+            tunnels.iter().cloned().collect()
+        };
+
+        if active_keys.is_empty() {
+            return;
+        }
+
+        info!("Disconnecting {} tunnel(s)", active_keys.len());
+
+        // Disconnect each tunnel
+        for key in &active_keys {
+            app.tunnel_manager.toggle(key, false);
+        }
+
+        // Update UI
+        if let Some(status_item) = app.get_status_item() {
+            if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+                update_status_item_title(&status_item, false, mtm);
+
+                if let Some(menu) = status_item.menu(mtm) {
+                    let num_items = menu.numberOfItems();
+                    for i in 0..num_items {
+                        if let Some(item) = menu.itemAtIndex(i) {
+                            // Uncheck all tunnel items (have represented object, no submenu)
+                            if item.representedObject().is_some() && item.submenu().is_none() {
+                                item.setState(0);
+                            }
+                            // Disable "Disconnect All" item
+                            if item.tag() == DISCONNECT_ALL_TAG {
+                                item.setEnabled(false);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -269,6 +337,9 @@ fn update_scheduled_task_items(menu: &NSMenu) {
 pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSMenu> {
     let menu = NSMenu::new(mtm);
 
+    // Disable auto-enable so we can manually control item enabled state
+    menu.setAutoenablesItems(false);
+
     // Set the delegate so menuNeedsUpdate gets called
     let delegate = ProtocolObject::from_ref(handler);
     menu.setDelegate(Some(delegate));
@@ -332,6 +403,18 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
     );
     set_menu_item_target(&config_folder_item, handler as &AnyObject);
     menu.addItem(&config_folder_item);
+
+    // Add "Disconnect All" item
+    let disconnect_all_item = create_menu_item_with_action(
+        ns_string!("Disconnect All"),
+        Some(sel!(disconnectAll:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_target(&disconnect_all_item, handler as &AnyObject);
+    disconnect_all_item.setTag(DISCONNECT_ALL_TAG);
+    disconnect_all_item.setEnabled(false); // Disabled initially (no active tunnels)
+    menu.addItem(&disconnect_all_item);
 
     // Add About item (clickable, opens About window)
     let about_item = create_menu_item_with_action(
