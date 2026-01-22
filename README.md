@@ -1,4 +1,4 @@
-# Something in the Background
+# Something In The Background
 
 A native menu bar utility for managing background processes, SSH tunnels, and scheduled tasks.
 
