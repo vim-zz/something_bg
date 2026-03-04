@@ -561,8 +561,8 @@ fn ordinal(day: u32) -> String {
     format!("{day}{suffix}")
 }
 
-/// Capitalize the first ASCII letter, leaving the rest unchanged.
-fn capitalize_first(s: &str) -> String {
+/// Capitalize the first letter, leaving the rest unchanged.
+pub fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),

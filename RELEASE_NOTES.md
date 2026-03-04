@@ -1,5 +1,30 @@
 # Release Notes - Something in the Background
 
+## v1.8.0
+
+**Release Date:** March 4, 2026
+
+### 🚀 One-Time Commands & Scripts Directory
+
+- Added `[commands]` config section for fire-and-forget one-time commands (no `kill_command` needed)
+- Three output modes: `silent` (default, fire and forget), `notify` (background execution with notification on completion), `terminal` (opens a terminal window with live output)
+- Added `scripts_dir` config option to auto-discover `.sh` scripts from a directory — scripts appear under a "Scripts" header, sorted alphabetically, with `notify` as default output mode
+- Commands appear in the menu between tunnels and scheduled tasks
+- Cross-platform support: macOS (native notifications, Terminal.app), Linux (`notify-send`, `x-terminal-emulator`), Windows (PowerShell toast, `cmd.exe`)
+
+### 🔔 Native Notifications with App Icon
+
+- macOS notifications now use native `NSUserNotificationCenter` instead of `osascript`, showing the app's own icon
+- Notifications display command name as title, with status emoji: ✅ Completed / ❌ Failed
+- Long-running commands (> 2s) show a ⏳ Running... notification and elapsed time on completion (e.g. "✅ Completed (14s)")
+- Clicking "View History" on a notification opens the command history log
+
+### 📋 Command History
+
+- All command executions are logged to `~/.config/something_bg/command_history.log` with timestamps, exit codes, elapsed time, and full output
+- "View Command History" menu item appears in the commands section (only when commands are configured)
+- History viewable from notification "View History" button or the menu item
+
 ## v1.7.0
 
 **Release Date:** December 17, 2025

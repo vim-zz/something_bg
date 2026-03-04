@@ -19,6 +19,8 @@ If you’ve ever left a Terminal window open _“just to keep a command running�
 
 - Tiny native macOS app with a Rust core (less than 1MB)
 - Run any script or CLI task without keeping a terminal open
+- Fire-and-forget one-time commands (silent, with notification, or in a terminal)
+- Auto-discover scripts from a directory
 - Run scripts on a schedule without cron, or launchd
 - Controlled from the menu bar
 - Everything is configured with one simple config file
@@ -101,6 +103,9 @@ The app loads all menu items from `~/.config/something_bg/config.toml`. On first
 # Custom PATH for command execution
 path = "/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin"
 
+# Optional: auto-discover .sh scripts from this directory
+scripts_dir = "~/.config/something_bg/scripts"
+
 [tunnels]
 
 # SSH tunnel with port forwarding
@@ -142,6 +147,22 @@ group_header = "DEVELOPMENT"
 group_icon = "sf:hammer.fill"
 separator_after = true
 
+# One-time commands (fire-and-forget)
+[commands.fix-quarantine]
+name = "Fix Whisperer Quarantine"
+command = "xattr"
+args = ["-dr", "com.apple.quarantine", "/Applications/whisperer.app"]
+group_header = "PERSONAL"
+group_icon = "sf:person.fill"
+
+[commands.deploy]
+name = "Deploy"
+command = "bash"
+args = ["/Users/me/scripts/deploy.sh"]
+output = "terminal"                 # Opens in Terminal.app
+separator_after = true
+
+# Scheduled tasks
 [schedules.daily-backup]
 name = "Daily Backup"
 command = "/usr/local/bin/backup.sh"
@@ -158,15 +179,60 @@ group_icon = "sf:clock.fill"
 - `command` + `args`: Command to start the service
 - `kill_command` + `kill_args`: Command to stop the service
 
+**For Commands:**
+- `name`: Display name in the menu
+- `command` + `args`: Command to execute
+- `output`: Output mode — `"silent"` (default), `"notify"`, or `"terminal"` (see below)
+
 **For Scheduled Tasks:**
 - `name`: Display name in the menu
 - `command` + `args`: Command to execute
 - `cron_schedule`: Cron expression for scheduling (e.g., "0 6 * * *")
 
-**Optional fields (both types):**
+**Optional fields (all types):**
 - `group_header`: Section title (e.g., "DATABASE", "SCHEDULED TASKS")
 - `group_icon`: SF Symbol name for the header (e.g., "sf:cylinder.fill", "sf:clock.fill")
 - `separator_after`: Add a visual separator line after this item
+
+### One-Time Commands
+
+Run any command with a single click from the menu bar. Each command has a configurable `output` mode:
+
+| Mode | Behavior | Best for |
+|------|----------|----------|
+| `silent` (default) | Fire and forget, no output | Instant commands (`xattr`, `pkill`) |
+| `notify` | Run in background, show notification on completion with last 5 lines of output | Scripts that take seconds to minutes |
+| `terminal` | Open a terminal window with live output | Long/interactive scripts, debugging |
+
+```toml
+[commands.fix-quarantine]
+name = "Fix Quarantine"
+command = "xattr"
+args = ["-dr", "com.apple.quarantine", "/Applications/myapp.app"]
+# output defaults to "silent"
+
+[commands.backup]
+name = "Run Backup"
+command = "bash"
+args = ["/usr/local/bin/backup.sh"]
+output = "notify"                    # Shows notification when done
+
+[commands.deploy]
+name = "Deploy"
+command = "bash"
+args = ["/usr/local/bin/deploy.sh"]
+output = "terminal"                  # Opens in Terminal.app
+```
+
+### Scripts Directory
+
+Auto-discover shell scripts from a directory. All `*.sh` files appear in the menu under a "Scripts" header, sorted alphabetically. Default output mode is `notify`.
+
+```toml
+scripts_dir = "~/.config/something_bg/scripts"
+```
+
+Filenames are title-cased for display: `delete-logs.sh` → "Delete Logs".
 
 ### Scheduled Tasks
 

@@ -14,7 +14,7 @@ use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, n
 
 use crate::GLOBAL_APP;
 use crate::paths::MacPaths;
-use something_bg_core::config::{Config, ScheduledTaskConfig, TunnelConfig};
+use something_bg_core::config::{CommandConfig, Config, ScheduledTaskConfig, TunnelConfig};
 use something_bg_core::platform::AppPaths;
 
 fn load_config() -> Config {
@@ -91,6 +91,16 @@ define_class!(
         fn disconnect_all(&self, _item: &NSMenuItem) {
             disconnect_all_handler();
         }
+
+        #[unsafe(method(runCommand:))]
+        fn run_command(&self, item: &NSMenuItem) {
+            run_command_handler(item);
+        }
+
+        #[unsafe(method(viewCommandHistory:))]
+        fn view_command_history(&self, _item: &NSMenuItem) {
+            view_command_history_handler();
+        }
     }
 );
 
@@ -138,6 +148,23 @@ fn run_scheduled_task_handler(item: &NSMenuItem) {
     }
 }
 
+/// Handler function for running a one-time command
+fn run_command_handler(item: &NSMenuItem) {
+    use log::info;
+
+    if let Some(represented_obj) = item.representedObject() {
+        let command_key = extract_nsstring_from_object(&represented_obj);
+
+        info!("Running command: {}", command_key);
+
+        if let Some(app) = crate::GLOBAL_APP.get()
+            && let Err(e) = app.command_runner.run_by_key(&command_key)
+        {
+            error!("Failed to run command '{}': {}", command_key, e);
+        }
+    }
+}
+
 /// Safely extracts an NSString from a represented object
 /// SAFETY: Caller must ensure the object is actually an NSString
 fn extract_nsstring_from_object(obj: &AnyObject) -> String {
@@ -172,6 +199,25 @@ fn set_menu_item_represented_object(item: &NSMenuItem, obj: &NSString) {
 fn set_menu_item_target(item: &NSMenuItem, target: &AnyObject) {
     // SAFETY: target must be a valid object that responds to the item's action selector
     unsafe { item.setTarget(Some(target)) };
+}
+
+/// Open the command history log file in the default text editor.
+fn view_command_history_handler() {
+    use log::{error, info};
+    use std::process::Command;
+
+    if let Some(app) = GLOBAL_APP.get() {
+        if let Some(path) = app.command_runner.history_path() {
+            if path.exists() {
+                match Command::new("open").arg(path).spawn() {
+                    Ok(_) => info!("Opened command history log"),
+                    Err(e) => error!("Failed to open command history: {}", e),
+                }
+            } else {
+                info!("No command history yet");
+            }
+        }
+    }
 }
 
 /// Open the config folder in Finder using the current app paths.
@@ -366,6 +412,40 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
         }
     }
 
+    // Add commands section
+    if !config.commands.is_empty() {
+        let separator = NSMenuItem::separatorItem(mtm);
+        menu.addItem(&separator);
+
+        for (key, cmd_config) in config.commands.iter() {
+            // Add group header if specified
+            if let Some(group_header) = &cmd_config.group_header {
+                let header_item =
+                    create_header_item(group_header, cmd_config.group_icon.as_deref(), mtm);
+                menu.addItem(&header_item);
+            }
+
+            let cmd_item = create_command_menu_item(handler, cmd_config, key, mtm);
+            menu.addItem(&cmd_item);
+
+            // Add separator after this item if configured
+            if cmd_config.separator_after.unwrap_or(false) {
+                let separator = NSMenuItem::separatorItem(mtm);
+                menu.addItem(&separator);
+            }
+        }
+
+        // "View Command History" at the end of the commands section
+        let history_item = create_menu_item_with_action(
+            ns_string!("View Command History"),
+            Some(sel!(viewCommandHistory:)),
+            ns_string!(""),
+            mtm,
+        );
+        set_menu_item_target(&history_item, handler as &AnyObject);
+        menu.addItem(&history_item);
+    }
+
     // Add scheduled tasks section
     if !config.schedules.is_empty() {
         let separator = NSMenuItem::separatorItem(mtm);
@@ -480,6 +560,24 @@ fn create_menu_item(
     set_menu_item_represented_object(&item, &command_id_ns);
     set_menu_item_target(&item, handler as &AnyObject);
     item.setState(0); // NSOffState = 0
+
+    item
+}
+
+/// Helper to create a plain (non-toggle) menu item for a one-time command.
+fn create_command_menu_item(
+    handler: &MenuHandler,
+    cmd_config: &CommandConfig,
+    command_key: &str,
+    mtm: MainThreadMarker,
+) -> Retained<NSMenuItem> {
+    let title_ns = NSString::from_str(&cmd_config.name);
+    let item =
+        create_menu_item_with_action(&title_ns, Some(sel!(runCommand:)), ns_string!(""), mtm);
+
+    let key_ns = NSString::from_str(command_key);
+    set_menu_item_represented_object(&item, &key_ns);
+    set_menu_item_target(&item, handler as &AnyObject);
 
     item
 }

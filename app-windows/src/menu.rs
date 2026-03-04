@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 
 use log::debug;
-use something_bg_core::config::{Config, ScheduledTaskConfig, TunnelConfig};
+use something_bg_core::config::Config;
 use something_bg_core::scheduler::{TaskScheduler, cron_to_human_readable, format_last_run};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 
 pub struct MenuHandles {
     pub tunnels: Vec<TunnelHandle>,
+    pub commands: Vec<CommandHandle>,
     pub tasks: Vec<TaskHandle>,
     pub about_id: MenuId,
     pub open_config_id: MenuId,
+    pub view_history_id: Option<MenuId>,
     pub quit_id: MenuId,
 }
 
@@ -17,6 +19,11 @@ pub struct TunnelHandle {
     pub id: MenuId,
     pub key: String,
     pub item: CheckMenuItem,
+}
+
+pub struct CommandHandle {
+    pub id: MenuId,
+    pub key: String,
 }
 
 pub struct TaskHandle {
@@ -30,7 +37,7 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
 
     let mut tunnels = Vec::new();
     for (key, tunnel) in &config.tunnels {
-        add_group_header(&menu, tunnel);
+        maybe_add_group_header(&menu, tunnel.group_header.as_deref());
 
         let item = CheckMenuItem::new(&tunnel.name, true, false, None);
         let id = item.id().clone();
@@ -50,7 +57,43 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
         }
     }
 
-    if !config.schedules.is_empty() && !config.tunnels.is_empty() {
+    let mut commands = Vec::new();
+    let mut view_history_id = None;
+    if !config.commands.is_empty() {
+        if !config.tunnels.is_empty() {
+            if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
+                debug!("failed to append separator: {e}");
+            }
+        }
+
+        for (key, cmd) in &config.commands {
+            maybe_add_group_header(&menu, cmd.group_header.as_deref());
+
+            let item = MenuItem::new(&cmd.name, true, None);
+            let id = item.id().clone();
+            if let Err(e) = menu.append(&item) {
+                debug!("failed to append command item: {e}");
+            }
+            commands.push(CommandHandle {
+                id,
+                key: key.clone(),
+            });
+
+            if cmd.separator_after.unwrap_or(false) {
+                if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
+                    debug!("failed to append separator: {e}");
+                }
+            }
+        }
+
+        let view_history = MenuItem::new("View command history", true, None);
+        view_history_id = Some(view_history.id().clone());
+        if let Err(e) = menu.append(&view_history) {
+            debug!("failed to append view-history item: {e}");
+        }
+    }
+
+    if !config.schedules.is_empty() && (!config.tunnels.is_empty() || !config.commands.is_empty()) {
         if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
             debug!("failed to append separator: {e}");
         }
@@ -58,7 +101,7 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
 
     let mut tasks = Vec::new();
     for (key, task) in &config.schedules {
-        add_group_header_for_task(&menu, task);
+        maybe_add_group_header(&menu, task.group_header.as_deref());
 
         let schedule_line = format!("Schedule: {}", cron_to_human_readable(&task.cron_schedule));
         let schedule_item = MenuItem::new(&schedule_line, false, None);
@@ -96,7 +139,7 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
         }
     }
 
-    if !config.tunnels.is_empty() || !config.schedules.is_empty() {
+    if !config.tunnels.is_empty() || !config.commands.is_empty() || !config.schedules.is_empty() {
         if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
             debug!("failed to append separator: {e}");
         }
@@ -124,25 +167,18 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
         menu,
         MenuHandles {
             tunnels,
+            commands,
             tasks,
             about_id,
             open_config_id,
+            view_history_id,
             quit_id,
         },
     )
 }
 
-fn add_group_header(menu: &Menu, tunnel: &TunnelConfig) {
-    if let Some(header) = &tunnel.group_header {
-        let item = MenuItem::new(header, false, None);
-        if let Err(e) = menu.append(&item) {
-            debug!("failed to append group header: {e}");
-        }
-    }
-}
-
-fn add_group_header_for_task(menu: &Menu, task: &ScheduledTaskConfig) {
-    if let Some(header) = &task.group_header {
+fn maybe_add_group_header(menu: &Menu, header: Option<&str>) {
+    if let Some(header) = header {
         let item = MenuItem::new(header, false, None);
         if let Err(e) = menu.append(&item) {
             debug!("failed to append group header: {e}");
@@ -169,11 +205,17 @@ pub fn build_id_lookup(handles: &MenuHandles) -> HashMap<MenuId, MenuAction> {
     for t in &handles.tunnels {
         map.insert(t.id.clone(), MenuAction::ToggleTunnel(t.key.clone()));
     }
+    for c in &handles.commands {
+        map.insert(c.id.clone(), MenuAction::RunCommand(c.key.clone()));
+    }
     for t in &handles.tasks {
         map.insert(t.run_id.clone(), MenuAction::RunTask(t.key.clone()));
     }
     map.insert(handles.about_id.clone(), MenuAction::About);
     map.insert(handles.open_config_id.clone(), MenuAction::OpenConfig);
+    if let Some(id) = &handles.view_history_id {
+        map.insert(id.clone(), MenuAction::ViewHistory);
+    }
     map.insert(handles.quit_id.clone(), MenuAction::Quit);
     map
 }
@@ -181,8 +223,10 @@ pub fn build_id_lookup(handles: &MenuHandles) -> HashMap<MenuId, MenuAction> {
 #[derive(Clone, Debug)]
 pub enum MenuAction {
     ToggleTunnel(String),
+    RunCommand(String),
     RunTask(String),
     About,
     OpenConfig,
+    ViewHistory,
     Quit,
 }
