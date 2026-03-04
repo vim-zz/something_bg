@@ -6,24 +6,10 @@
 
 ### 🚀 One-Time Commands & Scripts Directory
 
-- Added `[commands]` config section for fire-and-forget one-time commands (no `kill_command` needed)
-- Three output modes: `silent` (default, fire and forget), `notify` (background execution with notification on completion), `terminal` (opens a terminal window with live output)
-- Added `scripts_dir` config option to auto-discover `.sh` scripts from a directory — scripts appear under a "Scripts" header, sorted alphabetically, with `notify` as default output mode
-- Commands appear in the menu between tunnels and scheduled tasks
-- Cross-platform support: macOS (native notifications, Terminal.app), Linux (`notify-send`, `x-terminal-emulator`), Windows (PowerShell toast, `cmd.exe`)
-
-### 🔔 Native Notifications with App Icon
-
-- macOS notifications now use native `NSUserNotificationCenter` instead of `osascript`, showing the app's own icon
-- Notifications display command name as title, with status emoji: ✅ Completed / ❌ Failed
-- Long-running commands (> 2s) show a ⏳ Running... notification and elapsed time on completion (e.g. "✅ Completed (14s)")
-- Clicking "View History" on a notification opens the command history log
-
-### 📋 Command History
-
-- All command executions are logged to `~/.config/something_bg/command_history.log` with timestamps, exit codes, elapsed time, and full output
-- "View Command History" menu item appears in the commands section (only when commands are configured)
-- History viewable from notification "View History" button or the menu item
+- `[commands]` config section for fire-and-forget commands with three output modes: `silent`, `notify`, `terminal`
+- `scripts_dir` config option to auto-discover `.sh` scripts (sorted alphabetically, default `notify`)
+- Native macOS notifications with app icon, elapsed time, and "View History" button
+- Command history logged to `command_history.log`
 
 ## v1.7.0
 
@@ -59,7 +45,7 @@
 
 ### 🔠 Menu Polish
 
-- “Next run” and “Last run” entries now start with capitalized relative time text for better readability in the scheduled task submenus.
+- "Next run" and "Last run" entries now start with capitalized relative time text for better readability in the scheduled task submenus.
 
 ## v1.5.0
 
@@ -386,7 +372,7 @@ Future releases may include:
 ```
 ❌ Random order every time:
 ├── Open tunnel PROD
-├── Langfuse port forward  
+├── Langfuse port forward
 ├── Open tunnel DEV-01
 └── Colima Docker
 ```
@@ -395,7 +381,7 @@ Future releases may include:
 ```
 ✅ Consistent order matching config.toml:
 ├── Open tunnel PROD          (from [tunnels.prod])
-├── Open tunnel DEV-01        (from [tunnels.dev-01]) 
+├── Open tunnel DEV-01        (from [tunnels.dev-01])
 ├── Langfuse port forward     (from [tunnels.k8s-langfuse])
 └── Colima Docker             (from [tunnels.colima])
 ```
@@ -434,7 +420,7 @@ Your `~/.config/something_bg/config.toml` order is now preserved:
 [tunnels.first-tunnel]      # ← Will appear first in menu
 name = "First Tunnel"
 
-[tunnels.second-tunnel]     # ← Will appear second in menu  
+[tunnels.second-tunnel]     # ← Will appear second in menu
 name = "Second Tunnel"
 
 [tunnels.third-tunnel]      # ← Will appear third in menu
@@ -449,7 +435,7 @@ If you encounter any issues with this release, please:
 2. Verify your `config.toml` file is properly formatted
 3. Report issues with:
    - Your macOS version
-   - Contents of your `config.toml` 
+   - Contents of your `config.toml`
    - Steps to reproduce the problem
 
 ## 💡 What's Next
