@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use log::{error, info, warn};
 use something_bg_core::command::CommandRunner;
 use something_bg_core::config::Config;
+use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
 use something_bg_core::tunnel::TunnelManager;
 
