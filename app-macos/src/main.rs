@@ -55,6 +55,9 @@ fn main() {
     the_app.set_status_item(status_item);
     GLOBAL_APP.set(the_app).ok().unwrap();
 
+    // 5b. Set up native notification center (shows app icon, handles "Show" clicks)
+    app::setup_notification_center(mtm);
+
     // 6. Setup wake observer to detect when Mac wakes from sleep
     wake_detector::set_wake_callback(|| {
         if let Some(app) = GLOBAL_APP.get() {

@@ -31,8 +31,8 @@
 - Emit logs through `log`/`oslog` with concise context fields so Console filtering remains effective.
 
 ## Architecture & Design Patterns
-- **Core components:** `main.rs` (Cocoa setup, initialization, run loop), `app.rs` (main state with `TunnelManager` and status item wrapper), `config.rs` (TOML config load/manage), `menu.rs` (NSStatusItem + NSMenu creation and icon handling), `tunnel.rs` (SSH/port-forward lifecycle), `logger.rs` (oslog configuration).
-- **Key patterns:** thread-safe global state via `OnceLock<App>`, thread-safe Cocoa wrappers, Objective-C bridge class for menu callbacks, async threads for long-running tunnel commands.
+- **Core components:** `main.rs` (Cocoa setup, initialization, run loop), `app.rs` (main state with `TunnelManager`, `CommandRunner`, and status item wrapper), `config.rs` (TOML config load/manage, script auto-discovery), `command.rs` (one-time command execution with silent/notify/terminal output modes), `menu.rs` (NSStatusItem + NSMenu creation and icon handling), `tunnel.rs` (SSH/port-forward lifecycle), `logger.rs` (oslog configuration).
+- **Key patterns:** thread-safe global state via `OnceLock<App>`, thread-safe Cocoa wrappers, Objective-C bridge class for menu callbacks, async threads for long-running tunnel commands, callback-based cross-platform dispatch in `CommandRunner`.
 - **Dependencies:** cocoa/objc2, core-foundation, log/oslog, libc, toml, serde; patched `objc` fork for compatibility.
 
 ## Tunnel Configuration
@@ -40,6 +40,13 @@
 - Each tunnel defines `name`, `command`, `args`, `kill_command`, `kill_args`, optional `separator_after`, optional `group_header`, and optional `group_icon` (SF Symbol name such as `sf:cylinder.fill`).
 - Supports any command-line tool that can be started/stopped; config uses `#[serde(default)]` on optional fields for backward compatibility.
 - Default seed tunnels: `example-ssh`, `k8s-example`, and `colima`.
+
+## One-Time Commands
+- `[commands]` config section for fire-and-forget commands (no kill_command needed).
+- Each command defines `name`, `command`, `args`, and optional `output` mode (`"silent"` | `"notify"` | `"terminal"`).
+- `CommandRunner` in `core/src/command.rs` dispatches execution based on output mode using platform-specific callbacks (notify and terminal).
+- `scripts_dir` config option auto-discovers `*.sh` files and adds them as commands with `"notify"` output mode.
+- Menu order: Tunnels → Commands → Scheduled Tasks → system items.
 
 ## Configuration Management
 - If config loading fails, fall back to hardcoded defaults.

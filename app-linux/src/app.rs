@@ -1,7 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use log::{error, info, warn};
+use something_bg_core::command::CommandRunner;
 use something_bg_core::config::Config;
+use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
 use something_bg_core::tunnel::TunnelManager;
 
@@ -11,6 +13,7 @@ use crate::paths::LinuxPaths;
 /// Holds the tunnel manager and scheduler so menu handlers can drive them.
 pub struct AppState {
     pub tunnel_manager: TunnelManager,
+    pub command_runner: CommandRunner,
     pub scheduler: Arc<TaskScheduler>,
     pub paths: Arc<LinuxPaths>,
 }
@@ -42,6 +45,63 @@ impl AppState {
             env_path: config.get_path(),
         };
 
+        // Initialize the command runner
+        let mut command_runner = CommandRunner::new(config.get_path());
+        let history_log = paths
+            .config_path()
+            .parent()
+            .unwrap()
+            .join("command_history.log");
+        command_runner.set_history_path(history_log);
+
+        // Set Linux notify callback using notify-send
+        command_runner.set_notify_callback(std::sync::Arc::new(|event| {
+            if event.is_running {
+                if let Err(e) = std::process::Command::new("notify-send")
+                    .args([event.name, "\u{23f3} Running..."])
+                    .spawn()
+                {
+                    log::warn!("Failed to send notification: {}", e);
+                }
+                return;
+            }
+            let title = if event.success {
+                format!("{} completed", event.name)
+            } else {
+                format!("{} failed", event.name)
+            };
+            if let Err(e) = std::process::Command::new("notify-send")
+                .args([&title, event.output])
+                .spawn()
+            {
+                log::warn!("Failed to send notification: {}", e);
+            }
+        }));
+
+        // Set Linux terminal callback
+        command_runner.set_terminal_callback(std::sync::Arc::new(|command, args| {
+            let full_cmd = if args.is_empty() {
+                command.to_string()
+            } else {
+                format!("{} {}", command, args.join(" "))
+            };
+            if let Err(e) = std::process::Command::new("x-terminal-emulator")
+                .args(["-e", &full_cmd])
+                .spawn()
+            {
+                log::warn!("Failed to open terminal (trying xterm): {}", e);
+                if let Err(e2) = std::process::Command::new("xterm")
+                    .args(["-e", &full_cmd])
+                    .spawn()
+                {
+                    log::error!("Failed to open xterm: {}", e2);
+                }
+            }
+        }));
+
+        // Register commands from config
+        command_runner.register_all(&config.commands);
+
         // Initialize the task scheduler
         let scheduler = Arc::new(TaskScheduler::new(path, paths.as_ref()));
 
@@ -70,6 +130,7 @@ impl AppState {
         (
             Self {
                 tunnel_manager,
+                command_runner,
                 scheduler,
                 paths,
             },

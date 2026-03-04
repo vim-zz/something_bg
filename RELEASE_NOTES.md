@@ -1,5 +1,16 @@
 # Release Notes - Something in the Background
 
+## v1.8.0
+
+**Release Date:** March 4, 2026
+
+### 🚀 One-Time Commands & Scripts Directory
+
+- `[commands]` config section for fire-and-forget commands with three output modes: `silent`, `notify`, `terminal`
+- `scripts_dir` config option to auto-discover `.sh` scripts (sorted alphabetically, default `notify`)
+- Native macOS notifications with app icon, elapsed time, and "View History" button
+- Command history logged to `command_history.log`
+
 ## v1.7.0
 
 **Release Date:** December 17, 2025
@@ -34,7 +45,7 @@
 
 ### 🔠 Menu Polish
 
-- “Next run” and “Last run” entries now start with capitalized relative time text for better readability in the scheduled task submenus.
+- "Next run" and "Last run" entries now start with capitalized relative time text for better readability in the scheduled task submenus.
 
 ## v1.5.0
 
@@ -361,7 +372,7 @@ Future releases may include:
 ```
 ❌ Random order every time:
 ├── Open tunnel PROD
-├── Langfuse port forward  
+├── Langfuse port forward
 ├── Open tunnel DEV-01
 └── Colima Docker
 ```
@@ -370,7 +381,7 @@ Future releases may include:
 ```
 ✅ Consistent order matching config.toml:
 ├── Open tunnel PROD          (from [tunnels.prod])
-├── Open tunnel DEV-01        (from [tunnels.dev-01]) 
+├── Open tunnel DEV-01        (from [tunnels.dev-01])
 ├── Langfuse port forward     (from [tunnels.k8s-langfuse])
 └── Colima Docker             (from [tunnels.colima])
 ```
@@ -409,7 +420,7 @@ Your `~/.config/something_bg/config.toml` order is now preserved:
 [tunnels.first-tunnel]      # ← Will appear first in menu
 name = "First Tunnel"
 
-[tunnels.second-tunnel]     # ← Will appear second in menu  
+[tunnels.second-tunnel]     # ← Will appear second in menu
 name = "Second Tunnel"
 
 [tunnels.third-tunnel]      # ← Will appear third in menu
@@ -424,7 +435,7 @@ If you encounter any issues with this release, please:
 2. Verify your `config.toml` file is properly formatted
 3. Report issues with:
    - Your macOS version
-   - Contents of your `config.toml` 
+   - Contents of your `config.toml`
    - Steps to reproduce the problem
 
 ## 💡 What's Next

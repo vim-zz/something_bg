@@ -1,3 +1,4 @@
+pub mod command;
 pub mod config;
 pub mod scheduler;
 pub mod tunnel;

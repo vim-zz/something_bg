@@ -1,10 +1,11 @@
 //! Configuration loading and management.
 //! Uses injected `AppPaths` so platform shells control where files live.
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 use crate::platform::AppPaths;
 use crate::tunnel::TunnelCommand;
@@ -13,7 +14,13 @@ use crate::tunnel::TunnelCommand;
 #[derive(Serialize)]
 struct ConfigForSerialization {
     tunnels: HashMap<String, TunnelConfig>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    commands: HashMap<String, CommandConfig>,
     schedules: HashMap<String, ScheduledTaskConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scripts_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scripts_output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
 }
@@ -47,11 +54,33 @@ pub struct ScheduledTaskConfig {
     pub group_icon: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandConfig {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub output: Option<String>,
+    #[serde(default)]
+    pub separator_after: Option<bool>,
+    #[serde(default)]
+    pub group_header: Option<String>,
+    #[serde(default)]
+    pub group_icon: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub tunnels: Vec<(String, TunnelConfig)>,
     #[serde(default)]
+    pub commands: Vec<(String, CommandConfig)>,
+    #[serde(default)]
     pub schedules: Vec<(String, ScheduledTaskConfig)>,
+    #[serde(default)]
+    pub scripts_dir: Option<String>,
+    #[serde(default)]
+    pub scripts_output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
@@ -78,7 +107,11 @@ impl Config {
         let value: toml::Value = content.parse()?;
         let config = Self::from_toml_value(value)?;
 
-        info!("Loaded {} tunnel configurations", config.tunnels.len());
+        info!(
+            "Loaded {} tunnels, {} commands",
+            config.tunnels.len(),
+            config.commands.len()
+        );
         Ok(config)
     }
 
@@ -94,11 +127,16 @@ impl Config {
         // Convert Vec back to HashMap for serialization
         let tunnels_map: std::collections::HashMap<String, TunnelConfig> =
             self.tunnels.iter().cloned().collect();
+        let commands_map: std::collections::HashMap<String, CommandConfig> =
+            self.commands.iter().cloned().collect();
         let schedules_map: std::collections::HashMap<String, ScheduledTaskConfig> =
             self.schedules.iter().cloned().collect();
         let serializable_config = ConfigForSerialization {
             tunnels: tunnels_map,
+            commands: commands_map,
             schedules: schedules_map,
+            scripts_dir: self.scripts_dir.clone(),
+            scripts_output: self.scripts_output.clone(),
             path: self.path.clone(),
         };
         let content = toml::to_string_pretty(&serializable_config)?;
@@ -144,6 +182,16 @@ impl Config {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        let scripts_dir = table
+            .get("scripts_dir")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let scripts_output = table
+            .get("scripts_output")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         let mut tunnels = Vec::new();
 
         if let Some(tunnels_value) = table.get("tunnels")
@@ -154,6 +202,22 @@ impl Config {
                 let tunnel_config: TunnelConfig = value.clone().try_into()?;
                 tunnels.push((key.clone(), tunnel_config));
             }
+        }
+
+        let mut commands = Vec::new();
+
+        if let Some(commands_value) = table.get("commands")
+            && let Some(commands_table) = commands_value.as_table()
+        {
+            for (key, value) in commands_table {
+                let command_config: CommandConfig = value.clone().try_into()?;
+                commands.push((key.clone(), command_config));
+            }
+        }
+
+        // Auto-discover scripts from scripts_dir
+        if let Some(ref dir) = scripts_dir {
+            discover_scripts(dir, &mut commands, scripts_output.as_deref());
         }
 
         let mut schedules = Vec::new();
@@ -170,7 +234,10 @@ impl Config {
 
         Ok(Config {
             tunnels,
+            commands,
             schedules,
+            scripts_dir,
+            scripts_output,
             path,
         })
     }
@@ -252,8 +319,98 @@ impl Default for Config {
 
         Self {
             tunnels,
+            commands: vec![],
             schedules,
+            scripts_dir: None,
+            scripts_output: None,
             path: None,
         }
+    }
+}
+
+/// Expand `~` or `~/...` to home directory in a path string.
+/// Does not expand `~user` paths.
+fn expand_tilde(path: &str) -> String {
+    if (path == "~" || path.starts_with("~/"))
+        && let Some(home) = dirs::home_dir()
+    {
+        return path.replacen('~', &home.to_string_lossy(), 1);
+    }
+    path.to_string()
+}
+
+/// Scan `scripts_dir` for `*.sh` files and append them as commands.
+/// `output_mode` overrides the default "notify" mode for discovered scripts.
+fn discover_scripts(
+    dir: &str,
+    commands: &mut Vec<(String, CommandConfig)>,
+    output_mode: Option<&str>,
+) {
+    use crate::scheduler::capitalize_first;
+
+    let before = commands.len();
+    let expanded = expand_tilde(dir);
+    let dir_path = Path::new(&expanded);
+
+    let mut scripts: Vec<_> = match fs::read_dir(dir_path) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "sh"))
+            .collect(),
+        Err(e) => {
+            warn!("Failed to read scripts_dir {}: {}", dir, e);
+            return;
+        }
+    };
+
+    scripts.sort_by_key(|e| e.file_name());
+
+    let mut first = true;
+    for entry in scripts {
+        let path = entry.path();
+        let stem = path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+
+        let name = stem
+            .split(['-', '_'])
+            .map(capitalize_first)
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let key = format!("script-{}", stem);
+
+        let group_header = if first {
+            first = false;
+            Some("Scripts".to_string())
+        } else {
+            None
+        };
+
+        let group_icon = if group_header.is_some() {
+            Some("sf:terminal.fill".to_string())
+        } else {
+            None
+        };
+
+        commands.push((
+            key,
+            CommandConfig {
+                name,
+                command: "bash".to_string(),
+                args: vec![path.to_string_lossy().to_string()],
+                output: Some(output_mode.unwrap_or("notify").to_string()),
+                separator_after: None,
+                group_header,
+                group_icon,
+            },
+        ));
+    }
+
+    let discovered = commands.len() - before;
+    if discovered > 0 {
+        debug!("Discovered {} script(s) from {}", discovered, dir);
     }
 }

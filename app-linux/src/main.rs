@@ -137,6 +137,11 @@ impl EventLoop {
                 MenuAction::ToggleTunnel(key) => {
                     self.toggle_tunnel(&key);
                 }
+                MenuAction::RunCommand(key) => {
+                    if let Err(e) = self.app_state.command_runner.run_by_key(&key) {
+                        error!("command '{}' failed: {}", key, e);
+                    }
+                }
                 MenuAction::RunTask(key) => {
                     if let Err(e) = self.app_state.scheduler.run_task_now(&key) {
                         error!("task '{}' failed: {}", key, e);
@@ -148,6 +153,9 @@ impl EventLoop {
                     open_about();
                 }
                 MenuAction::OpenConfig => open_config(&self.app_state.paths),
+                MenuAction::ViewHistory => {
+                    open_history(&self.app_state.command_runner);
+                }
                 MenuAction::Quit => {
                     self.running.store(false, Ordering::SeqCst);
                 }
@@ -196,6 +204,19 @@ fn open_config(paths: &std::sync::Arc<crate::paths::LinuxPaths>) {
     let result = Command::new("xdg-open").arg(&parent).spawn();
     if let Err(e) = result {
         warn!("xdg-open failed: {e}");
+    }
+}
+
+fn open_history(command_runner: &something_bg_core::command::CommandRunner) {
+    if let Some(path) = command_runner.history_path() {
+        if path.exists() {
+            info!("opening command history at {:?}", path);
+            if let Err(e) = Command::new("xdg-open").arg(path).spawn() {
+                warn!("failed to open history: {e}");
+            }
+        } else {
+            info!("no command history yet");
+        }
     }
 }
 
