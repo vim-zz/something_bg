@@ -1,5 +1,14 @@
 # Release Notes - Something in the Background
 
+## v1.8.2
+
+**Release Date:** April 5, 2026
+
+### Release Packaging
+
+- Added GitHub Releases install instructions for macOS and Linux to the README.
+- GitHub Actions now builds and publishes release artifacts automatically for macOS, Linux, and Windows when a `v*` tag is pushed.
+
 ## v1.8.1
 
 **Release Date:** April 5, 2026

@@ -19,6 +19,19 @@ A native menu bar utility for managing background processes, SSH tunnels, and sc
 
 ### macOS
 
+#### Install from GitHub Releases
+
+Download the latest macOS zip from the [GitHub Releases page](https://github.com/vim-zz/something_bg/releases), unzip it, then move `Something in the Background.app` to `/Applications`.
+
+> [!IMPORTANT]
+> Because the GitHub-built app is currently not signed or notarized, macOS may show a warning that the app is "corrupted" or say it should be moved to the Trash. If that happens, run:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Something in the Background.app"
+```
+
+#### Build from source
+
 **Step 1: Install Rust** (skip if already installed)
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -42,6 +55,20 @@ cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/
 Launch from Applications or run: `open "/Applications/Something in the Background.app"`
 
 ### Linux
+
+#### Install from GitHub Releases
+
+Download the latest Linux tarball from the [GitHub Releases page](https://github.com/vim-zz/something_bg/releases), then extract and run the binary:
+
+```bash
+tar -xzf something_bg-linux-x86_64-unknown-linux-gnu.tar.gz
+chmod +x something_bg_linux
+./something_bg_linux
+```
+
+Move `something_bg_linux` somewhere on your `PATH` if you want to launch it more easily later.
+
+#### Build from source
 
 **Prerequisites** (Ubuntu/Debian):
 ```bash
