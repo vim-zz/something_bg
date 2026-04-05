@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use log::debug;
+use muda::Submenu;
 use something_bg_core::config::Config;
 use something_bg_core::scheduler::{TaskScheduler, cron_to_human_readable, format_last_run};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
@@ -10,8 +11,10 @@ pub struct MenuHandles {
     pub tunnels: Vec<TunnelHandle>,
     pub commands: Vec<CommandHandle>,
     pub tasks: Vec<TaskHandle>,
-    pub about_id: MenuId,
     pub open_config_id: MenuId,
+    pub disconnect_all: MenuItem,
+    pub disconnect_all_id: MenuId,
+    pub about_id: MenuId,
     pub view_history_id: Option<MenuId>,
     pub quit_id: MenuId,
 }
@@ -30,6 +33,7 @@ pub struct CommandHandle {
 pub struct TaskHandle {
     pub key: String,
     pub run_id: MenuId,
+    pub next_run_item: MenuItem,
     pub last_run_item: MenuItem,
 }
 
@@ -87,7 +91,7 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
             }
         }
 
-        let view_history = MenuItem::new("View command history", true, None);
+        let view_history = MenuItem::new("View Command History", true, None);
         view_history_id = Some(view_history.id().clone());
         if let Err(e) = menu.append(&view_history) {
             debug!("failed to append view-history item: {e}");
@@ -104,10 +108,26 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
     for (key, task) in &config.schedules {
         maybe_add_group_header(&menu, task.group_header.as_deref());
 
-        let schedule_line = format!("Schedule: {}", cron_to_human_readable(&task.cron_schedule));
-        let schedule_item = MenuItem::new(&schedule_line, false, None);
-        if let Err(e) = menu.append(&schedule_item) {
+        let submenu = Submenu::new(&task.name, true);
+        let schedule_item = MenuItem::new(
+            &format!("Schedule: {}", cron_to_human_readable(&task.cron_schedule)),
+            false,
+            None,
+        );
+        if let Err(e) = submenu.append(&schedule_item) {
             debug!("failed to append schedule label: {e}");
+        }
+
+        let next_run_item = MenuItem::new(
+            &format!(
+                "Next run: {}",
+                format_last_run(&scheduler.get_task(key).map(|t| t.next_run).flatten())
+            ),
+            false,
+            None,
+        );
+        if let Err(e) = submenu.append(&next_run_item) {
+            debug!("failed to append next-run label: {e}");
         }
 
         let last_run_item = MenuItem::new(
@@ -118,18 +138,26 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
             false,
             None,
         );
-        if let Err(e) = menu.append(&last_run_item) {
+        if let Err(e) = submenu.append(&last_run_item) {
             debug!("failed to append last-run label: {e}");
         }
 
-        let run_now = MenuItem::new("Run now", true, None);
+        if let Err(e) = submenu.append(&PredefinedMenuItem::separator()) {
+            debug!("failed to append submenu separator: {e}");
+        }
+
+        let run_now = MenuItem::new("Run Now", true, None);
         let run_id = run_now.id().clone();
-        if let Err(e) = menu.append(&run_now) {
+        if let Err(e) = submenu.append(&run_now) {
             debug!("failed to append run-now item: {e}");
+        }
+        if let Err(e) = menu.append(&submenu) {
+            debug!("failed to append task submenu: {e}");
         }
         tasks.push(TaskHandle {
             key: key.clone(),
             run_id,
+            next_run_item: next_run_item.clone(),
             last_run_item: last_run_item.clone(),
         });
 
@@ -146,19 +174,29 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
         }
     }
 
+    let open_config = MenuItem::new("Open Config Folder", true, None);
+    let open_config_id = open_config.id().clone();
+    if let Err(e) = menu.append(&open_config) {
+        debug!("failed to append open-config item: {e}");
+    }
+
+    let disconnect_all = MenuItem::new("Disconnect All", false, None);
+    let disconnect_all_id = disconnect_all.id().clone();
+    if let Err(e) = menu.append(&disconnect_all) {
+        debug!("failed to append disconnect-all item: {e}");
+    }
+
     let about = MenuItem::new("About", true, None);
     let about_id = about.id().clone();
     if let Err(e) = menu.append(&about) {
         debug!("failed to append about item: {e}");
     }
 
-    let open_config = MenuItem::new("Open config folder", true, None);
-    let open_config_id = open_config.id().clone();
-    if let Err(e) = menu.append(&open_config) {
-        debug!("failed to append open-config item: {e}");
+    if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
+        debug!("failed to append separator: {e}");
     }
 
-    let quit = MenuItem::new("Quit", true, None);
+    let quit = MenuItem::new("Quit Something in the Background", true, None);
     let quit_id = quit.id().clone();
     if let Err(e) = menu.append(&quit) {
         debug!("failed to append quit item: {e}");
@@ -170,8 +208,10 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
             tunnels,
             commands,
             tasks,
-            about_id,
             open_config_id,
+            disconnect_all,
+            disconnect_all_id,
+            about_id,
             view_history_id,
             quit_id,
         },
@@ -192,7 +232,9 @@ pub fn refresh_task_labels(handles: &MenuHandles, scheduler: &TaskScheduler) {
     let mut updated = 0;
     for handle in &handles.tasks {
         if let Some(task) = scheduler.get_task(&handle.key) {
+            let next_label = format!("Next run: {}", format_last_run(&task.next_run));
             let label = format!("Last run: {}", format_last_run(&task.last_run));
+            handle.next_run_item.set_text(&next_label);
             handle.last_run_item.set_text(&label);
             updated += 1;
         }
@@ -216,6 +258,7 @@ pub fn build_id_lookup(handles: &MenuHandles) -> HashMap<MenuId, MenuAction> {
     }
     map.insert(handles.about_id.clone(), MenuAction::About);
     map.insert(handles.open_config_id.clone(), MenuAction::OpenConfig);
+    map.insert(handles.disconnect_all_id.clone(), MenuAction::DisconnectAll);
     if let Some(id) = &handles.view_history_id {
         map.insert(id.clone(), MenuAction::ViewHistory);
     }
@@ -230,6 +273,7 @@ pub enum MenuAction {
     RunTask(String),
     About,
     OpenConfig,
+    DisconnectAll,
     ViewHistory,
     Quit,
 }

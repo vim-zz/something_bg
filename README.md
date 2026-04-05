@@ -47,7 +47,8 @@ Launch from Applications or run: `open "/Applications/Something in the Backgroun
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
-sudo apt install libayatana-appindicator3-dev libgtk-3-dev
+sudo apt update
+sudo apt install build-essential pkg-config libayatana-appindicator3-dev libgtk-3-dev libxdo-dev
 ```
 
 **Build and run**:

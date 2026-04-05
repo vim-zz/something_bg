@@ -1,5 +1,14 @@
 # Release Notes - Something in the Background
 
+## v1.8.1
+
+**Release Date:** April 5, 2026
+
+### Linux Tray Icon Fixes
+
+- Fixed the Linux tray indicator to render as a circular status dot with transparent padding instead of a solid square.
+- Updated Linux setup docs to include the required native build packages for first-time builds.
+
 ## v1.8.0
 
 **Release Date:** March 4, 2026

@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use ctrlc;
 use env_logger;
 use gtk::glib;
+use gtk::prelude::*;
 use log::{error, info, warn};
 use something_bg_core::platform::AppPaths;
 use tray_icon::menu::MenuEvent;
@@ -153,6 +154,9 @@ impl EventLoop {
                     open_about();
                 }
                 MenuAction::OpenConfig => open_config(&self.app_state.paths),
+                MenuAction::DisconnectAll => {
+                    self.disconnect_all();
+                }
                 MenuAction::ViewHistory => {
                     open_history(&self.app_state.command_runner);
                 }
@@ -171,6 +175,27 @@ impl EventLoop {
         let any_active = self.app_state.tunnel_manager.toggle(key, !is_active);
         self.update_icon(any_active);
         self.update_checked_state(key, !is_active);
+        self.set_disconnect_all_enabled(any_active);
+    }
+
+    fn disconnect_all(&mut self) {
+        let active_keys: Vec<String> = {
+            let active = self.app_state.tunnel_manager.active_tunnels.lock().unwrap();
+            active.iter().cloned().collect()
+        };
+
+        if active_keys.is_empty() {
+            return;
+        }
+
+        for key in active_keys {
+            self.app_state.tunnel_manager.toggle(&key, false);
+            self.update_checked_state(&key, false);
+        }
+
+        let any_active = self.app_state.tunnel_manager.has_active_tunnels();
+        self.update_icon(any_active);
+        self.set_disconnect_all_enabled(any_active);
     }
 
     fn update_checked_state(&mut self, key: &str, checked: bool) {
@@ -190,6 +215,10 @@ impl EventLoop {
         if let Err(e) = self.tray_icon.set_icon(Some(icon)) {
             warn!("failed to update tray icon: {e}");
         }
+    }
+
+    fn set_disconnect_all_enabled(&self, enabled: bool) {
+        self.handles.disconnect_all.set_enabled(enabled);
     }
 }
 
@@ -221,25 +250,89 @@ fn open_history(command_runner: &something_bg_core::command::CommandRunner) {
 }
 
 fn open_about() {
-    let url = "https://github.com/vim-zz/something_bg";
-    info!("opening project page: {url}");
-    if let Err(e) = Command::new("xdg-open").arg(url).spawn() {
-        warn!("failed to open browser: {e}");
-    }
+    info!("opening about dialog");
+
+    let dialog = gtk::AboutDialog::new();
+    dialog.set_modal(true);
+    dialog.set_program_name("Something in the Background");
+    dialog.set_version(Some(env!("CARGO_PKG_VERSION")));
+    dialog.set_comments(Some(
+        "Menu bar app for SSH tunnels, Kubernetes port forwarding, and scheduled background commands.",
+    ));
+    dialog.set_website(Some("https://github.com/vim-zz/something_bg"));
+    dialog.set_website_label(Some("Project page"));
+    dialog.set_authors(&["vim-zz"]);
+    dialog.connect_response(|dialog, _| {
+        dialog.close();
+    });
+    dialog.show_all();
+    dialog.present();
 }
 
 fn build_icons() -> (Icon, Icon) {
-    // Simple 16x16 solid dots; avoid extra assets on Linux
-    let active = solid_icon([0x29, 0xb6, 0xf6, 0xff]); // blue-ish
-    let idle = solid_icon([0x77, 0x77, 0x77, 0xff]); // gray
+    // Render a circular status icon with transparent padding so Linux trays do not
+    // show it as a filled square.
+    let active = filled_circle_icon([0x29, 0xb6, 0xf6, 0xff]); // blue-ish
+    let idle = ring_icon([0x77, 0x77, 0x77, 0xff]); // gray outline
     (active, idle)
 }
 
-fn solid_icon(color: [u8; 4]) -> Icon {
-    let (width, height) = (16, 16);
+fn filled_circle_icon(color: [u8; 4]) -> Icon {
+    let (width, height) = (16usize, 16usize);
+    let center = ((width as f32 - 1.0) / 2.0, (height as f32 - 1.0) / 2.0);
+    let radius = 5.25f32;
     let mut data = Vec::with_capacity(width * height * 4);
-    for _ in 0..(width * height) {
-        data.extend_from_slice(&color);
+
+    for y in 0..height {
+        for x in 0..width {
+            let dx = x as f32 - center.0;
+            let dy = y as f32 - center.1;
+            let distance = (dx * dx + dy * dy).sqrt();
+
+            let alpha = if distance <= radius {
+                color[3]
+            } else if distance <= radius + 1.0 {
+                let falloff = 1.0 - (distance - radius);
+                (color[3] as f32 * falloff.clamp(0.0, 1.0)).round() as u8
+            } else {
+                0
+            };
+
+            data.extend_from_slice(&[color[0], color[1], color[2], alpha]);
+        }
     }
+
+    Icon::from_rgba(data, width as u32, height as u32).expect("failed to build icon")
+}
+
+fn ring_icon(color: [u8; 4]) -> Icon {
+    let (width, height) = (16usize, 16usize);
+    let center = ((width as f32 - 1.0) / 2.0, (height as f32 - 1.0) / 2.0);
+    let outer_radius = 5.2f32;
+    let inner_radius = 4.2f32;
+    let mut data = Vec::with_capacity(width * height * 4);
+
+    for y in 0..height {
+        for x in 0..width {
+            let dx = x as f32 - center.0;
+            let dy = y as f32 - center.1;
+            let distance = (dx * dx + dy * dy).sqrt();
+
+            let alpha = if distance >= inner_radius && distance <= outer_radius {
+                color[3]
+            } else if distance >= inner_radius - 1.0 && distance < inner_radius {
+                let falloff = 1.0 - (inner_radius - distance);
+                (color[3] as f32 * falloff.clamp(0.0, 1.0)).round() as u8
+            } else if distance > outer_radius && distance <= outer_radius + 1.0 {
+                let falloff = 1.0 - (distance - outer_radius);
+                (color[3] as f32 * falloff.clamp(0.0, 1.0)).round() as u8
+            } else {
+                0
+            };
+
+            data.extend_from_slice(&[color[0], color[1], color[2], alpha]);
+        }
+    }
+
     Icon::from_rgba(data, width as u32, height as u32).expect("failed to build icon")
 }
