@@ -1,5 +1,13 @@
 # Release Notes - Something in the Background
 
+## v1.8.3
+
+**Release Date:** April 5, 2026
+
+### Release Fix
+
+- Fixed the Windows release build by importing the shared `AppPaths` trait in the Windows shell.
+
 ## v1.8.2
 
 **Release Date:** April 5, 2026
