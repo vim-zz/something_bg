@@ -8,6 +8,7 @@
 
 - GitHub release builds for macOS are now Developer ID signed with the hardened runtime, notarized by Apple, and stapled before publication.
 - Signing and notarization credentials are isolated on a clean protected-environment runner and removed after use; reusable workflow actions are pinned to immutable revisions.
+- The macOS release artifact is explicitly built for Apple Silicon and published as `something_bg-macos-arm64.zip`.
 
 ## v1.10.0
 

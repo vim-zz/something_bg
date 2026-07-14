@@ -21,9 +21,11 @@ A native menu bar utility for managing background processes, SSH tunnels, and sc
 
 #### Install from GitHub Releases
 
-Download the latest macOS zip from the [GitHub Releases page](https://github.com/vim-zz/something_bg/releases), unzip it, then move `Something in the Background.app` to `/Applications`.
+On an Apple Silicon Mac, download `something_bg-macos-arm64.zip` from the [GitHub Releases page](https://github.com/vim-zz/something_bg/releases), unzip it, then move `Something in the Background.app` to `/Applications`.
 
 Starting with v1.10.1, GitHub release builds are signed with a Developer ID certificate and notarized by Apple before publication.
+
+The packaged macOS release currently targets Apple Silicon (`arm64`). Intel Mac users can build the app from source on an Intel Mac.
 
 #### Build from source
 

@@ -134,6 +134,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          targets: aarch64-apple-darwin
 
       - name: Cache cargo
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -149,9 +151,9 @@ jobs:
 
       - name: Build macOS app
         run: |
-          ./scripts/bundle-macos.sh
+          ./scripts/bundle-macos.sh --target aarch64-apple-darwin
           ditto -c -k --keepParent \
-            "target/release/bundle/osx/Something in the Background.app" \
+            "target/aarch64-apple-darwin/release/bundle/osx/Something in the Background.app" \
             "something_bg-macos-unsigned.zip"
 
       - name: Upload unsigned macOS app
@@ -193,13 +195,13 @@ jobs:
         run: |
           ./scripts/sign-and-notarize-macos.sh \
             "target/release/bundle/osx/Something in the Background.app" \
-            "something_bg-macos-universal.zip"
+            "something_bg-macos-arm64.zip"
 
       - name: Upload signed macOS release asset
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-macos
-          path: something_bg-macos-universal.zip
+          path: something_bg-macos-arm64.zip
           if-no-files-found: error
 
   publish-release:

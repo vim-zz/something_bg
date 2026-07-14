@@ -7,4 +7,4 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$ROOT_DIR/app-macos"
-CARGO_TARGET_DIR="$ROOT_DIR/target" cargo bundle --release
+CARGO_TARGET_DIR="$ROOT_DIR/target" cargo bundle --release "$@"
