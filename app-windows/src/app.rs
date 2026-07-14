@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use log::{error, info, warn};
 use something_bg_core::command::CommandRunner;
-use something_bg_core::config::Config;
+use something_bg_core::config::{Config, ConfigMonitor};
 use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
 use something_bg_core::tunnel::TunnelManager;
@@ -15,21 +15,22 @@ pub struct AppState {
     pub command_runner: CommandRunner,
     pub scheduler: Arc<TaskScheduler>,
     pub paths: Arc<WindowsPaths>,
+    config_monitor: ConfigMonitor,
 }
 
 impl AppState {
     pub fn new() -> (Self, Config) {
         let paths = Arc::new(WindowsPaths::default());
 
-        let config = match Config::load_with(paths.as_ref()) {
-            Ok(config) => {
+        let (config, config_contents) = match Config::load_with_snapshot(paths.as_ref()) {
+            Ok((config, contents)) => {
                 info!("Loaded configuration successfully");
-                config
+                (config, Some(contents))
             }
             Err(e) => {
                 error!("Failed to load configuration: {}", e);
                 warn!("Using default configuration");
-                Config::default()
+                (Config::default(), None)
             }
         };
 
@@ -39,7 +40,9 @@ impl AppState {
         let tunnel_manager = TunnelManager {
             commands_config: Arc::new(Mutex::new(commands)),
             active_tunnels: Arc::new(Mutex::new(Default::default())),
-            env_path: config.get_path(),
+            active_commands: Arc::new(Mutex::new(Default::default())),
+            generations: Arc::new(Mutex::new(Default::default())),
+            env_path: Arc::new(Mutex::new(config.get_path())),
         };
 
         // Initialize the command runner
@@ -120,10 +123,34 @@ impl AppState {
                 tunnel_manager,
                 command_runner,
                 scheduler,
-                paths,
+                paths: paths.clone(),
+                config_monitor: ConfigMonitor::new(paths.config_path(), config_contents),
             },
             config,
         )
+    }
+
+    pub fn config_changed(&self) -> bool {
+        self.config_monitor.has_changed().unwrap_or_else(|e| {
+            warn!("Failed to check config for changes: {e}");
+            false
+        })
+    }
+
+    pub fn reload_config(&mut self) -> Result<Config, String> {
+        let (config, contents) =
+            Config::load_with_snapshot(self.paths.as_ref()).map_err(|e| e.to_string())?;
+        let path = config.get_path();
+
+        self.scheduler
+            .reconfigure(path.clone(), &config.schedules)?;
+        self.tunnel_manager
+            .reconfigure(config.to_tunnel_commands(), path.clone());
+        self.command_runner.reconfigure(path, &config.commands);
+        self.config_monitor.mark_applied(contents);
+
+        info!("Reloaded configuration successfully");
+        Ok(config)
     }
 
     pub fn cleanup(&self) {

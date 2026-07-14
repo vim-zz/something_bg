@@ -1,5 +1,15 @@
 # Release Notes - Something in the Background
 
+## v1.9.0
+
+**Release Date:** July 14, 2026
+
+### Config Hot Reload
+
+- The tray menu now groups **Reload** and **Open Folder** under **Configuration**; **Reload** is enabled only when the config file has changed.
+- Reloading updates tunnels, one-time commands, scheduled tasks, and PATH settings without restarting the app.
+- Unchanged tunnels stay connected during reload; active tunnels affected by updated definitions or PATH settings are restarted, and removed active tunnels are disconnected.
+
 ## v1.8.3
 
 **Release Date:** April 5, 2026

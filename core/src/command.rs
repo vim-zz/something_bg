@@ -114,6 +114,13 @@ impl CommandRunner {
         }
     }
 
+    /// Replace all configured commands and the PATH used to execute them.
+    pub fn reconfigure(&mut self, env_path: String, commands: &[(String, CommandConfig)]) {
+        self.env_path = env_path;
+        self.commands.clear();
+        self.register_all(commands);
+    }
+
     /// Run a registered command by its key.
     pub fn run_by_key(&self, key: &str) -> Result<(), String> {
         let entry = self

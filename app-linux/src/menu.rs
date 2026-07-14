@@ -11,6 +11,7 @@ pub struct MenuHandles {
     pub tunnels: Vec<TunnelHandle>,
     pub commands: Vec<CommandHandle>,
     pub tasks: Vec<TaskHandle>,
+    pub reload_config_id: Option<MenuId>,
     pub open_config_id: MenuId,
     pub disconnect_all: MenuItem,
     pub disconnect_all_id: MenuId,
@@ -37,7 +38,11 @@ pub struct TaskHandle {
     pub last_run_item: MenuItem,
 }
 
-pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHandles) {
+pub fn build_menu(
+    config: &Config,
+    scheduler: &TaskScheduler,
+    show_reload: bool,
+) -> (Menu, MenuHandles) {
     let menu = Menu::new();
 
     let mut tunnels = Vec::new();
@@ -174,6 +179,17 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
         }
     }
 
+    let reload_config_id = if show_reload {
+        let reload = MenuItem::new("Reload Config", true, None);
+        let id = reload.id().clone();
+        if let Err(e) = menu.append(&reload) {
+            debug!("failed to append reload-config item: {e}");
+        }
+        Some(id)
+    } else {
+        None
+    };
+
     let open_config = MenuItem::new("Open Config Folder", true, None);
     let open_config_id = open_config.id().clone();
     if let Err(e) = menu.append(&open_config) {
@@ -208,6 +224,7 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
             tunnels,
             commands,
             tasks,
+            reload_config_id,
             open_config_id,
             disconnect_all,
             disconnect_all_id,
@@ -257,6 +274,9 @@ pub fn build_id_lookup(handles: &MenuHandles) -> HashMap<MenuId, MenuAction> {
         map.insert(t.run_id.clone(), MenuAction::RunTask(t.key.clone()));
     }
     map.insert(handles.about_id.clone(), MenuAction::About);
+    if let Some(id) = &handles.reload_config_id {
+        map.insert(id.clone(), MenuAction::ReloadConfig);
+    }
     map.insert(handles.open_config_id.clone(), MenuAction::OpenConfig);
     map.insert(handles.disconnect_all_id.clone(), MenuAction::DisconnectAll);
     if let Some(id) = &handles.view_history_id {
@@ -272,6 +292,7 @@ pub enum MenuAction {
     RunCommand(String),
     RunTask(String),
     About,
+    ReloadConfig,
     OpenConfig,
     DisconnectAll,
     ViewHistory,

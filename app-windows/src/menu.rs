@@ -10,6 +10,7 @@ pub struct MenuHandles {
     pub commands: Vec<CommandHandle>,
     pub tasks: Vec<TaskHandle>,
     pub about_id: MenuId,
+    pub reload_config_id: Option<MenuId>,
     pub open_config_id: MenuId,
     pub view_history_id: Option<MenuId>,
     pub quit_id: MenuId,
@@ -32,7 +33,11 @@ pub struct TaskHandle {
     pub last_run_item: MenuItem,
 }
 
-pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHandles) {
+pub fn build_menu(
+    config: &Config,
+    scheduler: &TaskScheduler,
+    show_reload: bool,
+) -> (Menu, MenuHandles) {
     let menu = Menu::new();
 
     let mut tunnels = Vec::new();
@@ -145,6 +150,17 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
         }
     }
 
+    let reload_config_id = if show_reload {
+        let reload = MenuItem::new("Reload Config", true, None);
+        let id = reload.id().clone();
+        if let Err(e) = menu.append(&reload) {
+            debug!("failed to append reload-config item: {e}");
+        }
+        Some(id)
+    } else {
+        None
+    };
+
     let about = MenuItem::new("About", true, None);
     let about_id = about.id().clone();
     if let Err(e) = menu.append(&about) {
@@ -170,6 +186,7 @@ pub fn build_menu(config: &Config, scheduler: &TaskScheduler) -> (Menu, MenuHand
             commands,
             tasks,
             about_id,
+            reload_config_id,
             open_config_id,
             view_history_id,
             quit_id,
@@ -212,6 +229,9 @@ pub fn build_id_lookup(handles: &MenuHandles) -> HashMap<MenuId, MenuAction> {
         map.insert(t.run_id.clone(), MenuAction::RunTask(t.key.clone()));
     }
     map.insert(handles.about_id.clone(), MenuAction::About);
+    if let Some(id) = &handles.reload_config_id {
+        map.insert(id.clone(), MenuAction::ReloadConfig);
+    }
     map.insert(handles.open_config_id.clone(), MenuAction::OpenConfig);
     if let Some(id) = &handles.view_history_id {
         map.insert(id.clone(), MenuAction::ViewHistory);
@@ -226,6 +246,7 @@ pub enum MenuAction {
     RunCommand(String),
     RunTask(String),
     About,
+    ReloadConfig,
     OpenConfig,
     ViewHistory,
     Quit,

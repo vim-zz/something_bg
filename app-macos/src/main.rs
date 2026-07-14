@@ -47,11 +47,12 @@ fn main() {
     // 4. Create the handler (Objective-C class) for menu events
     let handler = menu::MenuHandler::new(mtm);
 
+    let (mut the_app, config) = App::new();
+
     // 5. Create the status bar item with attached menu
-    let status_item = menu::create_status_item(&handler, mtm);
+    let status_item = menu::create_status_item(&handler, &config, mtm);
 
     // Store the app in the global variable
-    let mut the_app = App::new();
     the_app.set_status_item(status_item);
     GLOBAL_APP.set(the_app).ok().unwrap();
 

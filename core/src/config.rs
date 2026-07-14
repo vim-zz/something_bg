@@ -5,10 +5,42 @@ use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::platform::AppPaths;
 use crate::tunnel::TunnelCommand;
+
+/// Tracks the exact config contents that were last applied by the app.
+pub struct ConfigMonitor {
+    path: PathBuf,
+    applied_contents: Mutex<Option<Vec<u8>>>,
+}
+
+impl ConfigMonitor {
+    pub fn new(path: PathBuf, applied_contents: Option<Vec<u8>>) -> Self {
+        Self {
+            path,
+            applied_contents: Mutex::new(applied_contents),
+        }
+    }
+
+    /// Returns true when the file contents differ from the last applied config.
+    pub fn has_changed(&self) -> std::io::Result<bool> {
+        let current = match fs::read(&self.path) {
+            Ok(contents) => Some(contents),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e),
+        };
+        let applied = self.applied_contents.lock().unwrap();
+        Ok(*applied != current)
+    }
+
+    /// Records the exact file contents that were successfully parsed and applied.
+    pub fn mark_applied(&self, contents: Vec<u8>) {
+        *self.applied_contents.lock().unwrap() = Some(contents);
+    }
+}
 
 // Helper struct for serialization to maintain TOML structure
 #[derive(Serialize)]
@@ -88,6 +120,13 @@ pub struct Config {
 impl Config {
     /// Load configuration from the provided paths. Creates a default file if missing.
     pub fn load_with(paths: &dyn AppPaths) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::load_with_snapshot(paths).map(|(config, _)| config)
+    }
+
+    /// Load the config and return the exact bytes that produced it.
+    pub fn load_with_snapshot(
+        paths: &dyn AppPaths,
+    ) -> Result<(Self, Vec<u8>), Box<dyn std::error::Error>> {
         let config_path = paths.config_path();
 
         if !config_path.exists() {
@@ -95,13 +134,12 @@ impl Config {
                 "Config file not found at {:?}, creating default config",
                 config_path
             );
-            let default_config = Self::default();
-            default_config.save_with(paths)?;
-            return Ok(default_config);
+            Self::default().save_with(paths)?;
         }
 
         debug!("Loading config from {:?}", config_path);
-        let content = fs::read_to_string(&config_path)?;
+        let contents = fs::read(&config_path)?;
+        let content = std::str::from_utf8(&contents)?;
 
         // Parse as toml::Value first to preserve order, then convert
         let value: toml::Value = content.parse()?;
@@ -112,7 +150,7 @@ impl Config {
             config.tunnels.len(),
             config.commands.len()
         );
-        Ok(config)
+        Ok((config, contents))
     }
 
     /// Save configuration to the provided paths.
@@ -412,5 +450,37 @@ fn discover_scripts(
     let discovered = commands.len() - before;
     if discovered > 0 {
         debug!("Discovered {} script(s) from {}", discovered, dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigMonitor;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn config_monitor_detects_and_acknowledges_content_changes() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "something-bg-config-monitor-{}-{unique}.toml",
+            std::process::id()
+        ));
+
+        fs::write(&path, "path = 'first'").unwrap();
+        let monitor = ConfigMonitor::new(path.clone(), fs::read(&path).ok());
+        assert!(!monitor.has_changed().unwrap());
+
+        fs::write(&path, "path = 'second'").unwrap();
+        assert!(monitor.has_changed().unwrap());
+
+        monitor.mark_applied(fs::read(&path).unwrap());
+        assert!(!monitor.has_changed().unwrap());
+
+        fs::remove_file(path).unwrap();
+        assert!(monitor.has_changed().unwrap());
     }
 }

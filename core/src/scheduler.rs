@@ -241,7 +241,7 @@ impl ScheduledTask {
 /// Manages all scheduled tasks and handles their execution
 pub struct TaskScheduler {
     tasks: Arc<Mutex<HashMap<String, ScheduledTask>>>,
-    path: String,
+    path: Arc<Mutex<String>>,
     running: Arc<Mutex<bool>>,
     states: Arc<Mutex<HashMap<String, TaskState>>>,
     state_file: PathBuf,
@@ -254,7 +254,7 @@ impl TaskScheduler {
         let states = load_task_states(&state_file);
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
-            path,
+            path: Arc::new(Mutex::new(path)),
             running: Arc::new(Mutex::new(false)),
             states: Arc::new(Mutex::new(states)),
             state_file,
@@ -272,6 +272,40 @@ impl TaskScheduler {
 
         let mut tasks = self.tasks.lock().unwrap();
         tasks.insert(key, task);
+        Ok(())
+    }
+
+    /// Atomically replace all scheduled tasks and the PATH used to execute them.
+    pub fn reconfigure(
+        &self,
+        path: String,
+        configs: &[(String, ScheduledTaskConfig)],
+    ) -> Result<(), String> {
+        let mut tasks = self.tasks.lock().unwrap();
+        let persisted_states = self.states.lock().unwrap();
+        let mut new_tasks = HashMap::new();
+
+        for (key, config) in configs {
+            let current_state = tasks.get(key).map(|existing| TaskState {
+                last_run: existing.last_run,
+                next_run: if existing.cron_schedule == config.cron_schedule {
+                    existing.next_run
+                } else {
+                    None
+                },
+            });
+            let state = current_state.as_ref().or_else(|| persisted_states.get(key));
+            let task = ScheduledTask::new(config, state)?;
+            new_tasks.insert(key.clone(), task);
+        }
+        drop(persisted_states);
+
+        let mut current_path = self.path.lock().unwrap();
+        *tasks = new_tasks;
+        *current_path = path;
+        drop(current_path);
+        drop(tasks);
+        self.save_states();
         Ok(())
     }
 
@@ -324,7 +358,7 @@ impl TaskScheduler {
         drop(running);
 
         let tasks = Arc::clone(&self.tasks);
-        let path = self.path.clone();
+        let path = Arc::clone(&self.path);
         let running = Arc::clone(&self.running);
         let states = Arc::clone(&self.states);
         let state_file = self.state_file.clone();
@@ -340,6 +374,7 @@ impl TaskScheduler {
                 for (key, task) in tasks_guard.iter_mut() {
                     if task.should_run(&now) {
                         debug!("Task '{}' is due to run", key);
+                        let path = path.lock().unwrap().clone();
                         if let Err(e) = task.execute(&path) {
                             error!("Task '{}' execution failed: {}", key, e);
                         } else {
@@ -392,8 +427,9 @@ impl TaskScheduler {
     /// Manually trigger a task to run now
     pub fn run_task_now(&self, key: &str) -> Result<(), String> {
         let mut tasks = self.tasks.lock().unwrap();
+        let path = self.path.lock().unwrap().clone();
         let result = if let Some(task) = tasks.get_mut(key) {
-            task.execute(&self.path)
+            task.execute(&path)
         } else {
             Err(format!("Task '{}' not found", key))
         };
@@ -448,7 +484,8 @@ impl TaskScheduler {
                         key, next_run
                     );
 
-                    if let Err(e) = task.execute(&self.path) {
+                    let path = self.path.lock().unwrap().clone();
+                    if let Err(e) = task.execute(&path) {
                         error!("Failed to run missed task '{}': {}", key, e);
                     } else {
                         any_task_run = true;

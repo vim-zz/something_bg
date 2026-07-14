@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use something_bg_core::command::{CommandRunner, format_duration as format_elapsed};
-use something_bg_core::config::Config;
+use something_bg_core::config::{Config, ConfigMonitor};
 use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
 use something_bg_core::tunnel::TunnelManager;
@@ -29,27 +29,28 @@ unsafe impl Sync for StatusItemWrapper {}
 /// must be shared across modules (e.g., commands, active tunnels).
 pub struct App {
     pub tunnel_manager: TunnelManager,
-    pub command_runner: CommandRunner,
+    pub command_runner: Mutex<CommandRunner>,
     pub task_scheduler: TaskScheduler,
     pub paths: Arc<MacPaths>,
     pub status_item: Option<Arc<Mutex<StatusItemWrapper>>>,
+    config_monitor: ConfigMonitor,
 }
 
 impl App {
     /// Creates a new `App` with commands loaded from config file.
-    pub fn new() -> Self {
+    pub fn new() -> (Self, Config) {
         let paths = Arc::new(MacPaths::default());
 
         // Load configuration from TOML file
-        let config = match Config::load_with(paths.as_ref()) {
-            Ok(config) => {
+        let (config, config_contents) = match Config::load_with_snapshot(paths.as_ref()) {
+            Ok((config, contents)) => {
                 info!("Loaded configuration successfully");
-                config
+                (config, Some(contents))
             }
             Err(e) => {
                 error!("Failed to load configuration: {}", e);
                 warn!("Using default configuration");
-                Config::default()
+                (Config::default(), None)
             }
         };
 
@@ -60,7 +61,9 @@ impl App {
         let tunnel_manager = TunnelManager {
             commands_config: Arc::new(Mutex::new(commands)),
             active_tunnels: Arc::new(Mutex::new(HashSet::new())),
-            env_path: config.get_path(),
+            active_commands: Arc::new(Mutex::new(Default::default())),
+            generations: Arc::new(Mutex::new(Default::default())),
+            env_path: Arc::new(Mutex::new(config.get_path())),
         };
 
         // Initialize the command runner
@@ -150,13 +153,16 @@ impl App {
         info!("Checking for missed tasks on app startup...");
         task_scheduler.check_and_run_missed_tasks();
 
-        Self {
+        let app = Self {
             tunnel_manager,
-            command_runner,
+            command_runner: Mutex::new(command_runner),
             task_scheduler,
-            paths,
+            paths: paths.clone(),
             status_item: None,
-        }
+            config_monitor: ConfigMonitor::new(paths.config_path(), config_contents),
+        };
+
+        (app, config)
     }
 
     pub fn set_status_item(&mut self, item: Retained<NSStatusItem>) {
@@ -189,6 +195,32 @@ impl App {
     pub fn config_path(&self) -> std::path::PathBuf {
         self.paths.config_path()
     }
+
+    pub fn config_changed(&self) -> bool {
+        self.config_monitor.has_changed().unwrap_or_else(|e| {
+            warn!("Failed to check config for changes: {e}");
+            false
+        })
+    }
+
+    pub fn reload_config(&self) -> Result<Config, String> {
+        let (config, contents) =
+            Config::load_with_snapshot(self.paths.as_ref()).map_err(|e| e.to_string())?;
+        let path = config.get_path();
+
+        self.task_scheduler
+            .reconfigure(path.clone(), &config.schedules)?;
+        self.tunnel_manager
+            .reconfigure(config.to_tunnel_commands(), path.clone());
+        self.command_runner
+            .lock()
+            .unwrap()
+            .reconfigure(path, &config.commands);
+        self.config_monitor.mark_applied(contents);
+
+        info!("Reloaded configuration successfully");
+        Ok(config)
+    }
 }
 
 // Notification delegate: handles "Show" button clicks on notifications
@@ -204,7 +236,12 @@ define_class!(
         #[unsafe(method(userNotificationCenter:didActivateNotification:))]
         fn did_activate(&self, _center: &AnyObject, _notification: &AnyObject) {
             if let Some(app) = crate::GLOBAL_APP.get()
-                && let Some(path) = app.command_runner.history_path()
+                && let Some(path) = app
+                    .command_runner
+                    .lock()
+                    .unwrap()
+                    .history_path()
+                    .map(ToOwned::to_owned)
                 && path.exists()
             {
                 let _ = std::process::Command::new("open").arg(path).spawn();

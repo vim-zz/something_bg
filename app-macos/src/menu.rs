@@ -17,20 +17,13 @@ use crate::paths::MacPaths;
 use something_bg_core::config::{CommandConfig, Config, ScheduledTaskConfig, TunnelConfig};
 use something_bg_core::platform::AppPaths;
 
-fn load_config() -> Config {
-    if let Some(app) = GLOBAL_APP.get() {
-        Config::load_with(app.paths.as_ref()).unwrap_or_else(|_| Config::default())
-    } else {
-        Config::load_with(&MacPaths::default()).unwrap_or_else(|_| Config::default())
-    }
-}
-
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
 const ICON_ACTIVE: &str = "●"; // Filled circle for active
 
 // Tag to identify the "Disconnect All" menu item
 const DISCONNECT_ALL_TAG: isize = 9999;
+const RELOAD_CONFIG_TAG: isize = 10_000;
 
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
@@ -48,6 +41,7 @@ define_class!(
         #[unsafe(method(menuNeedsUpdate:))]
         fn menu_needs_update(&self, menu: &NSMenu) {
             update_scheduled_task_items(menu);
+            update_reload_item(menu);
         }
     }
 
@@ -65,6 +59,11 @@ define_class!(
         #[unsafe(method(openConfigFolder:))]
         fn open_config_folder(&self, _item: &NSMenuItem) {
             open_config_folder_handler();
+        }
+
+        #[unsafe(method(reloadConfig:))]
+        fn reload_config(&self, _item: &NSMenuItem) {
+            reload_config_handler(self);
         }
 
         #[unsafe(method(runScheduledTask:))]
@@ -158,7 +157,7 @@ fn run_command_handler(item: &NSMenuItem) {
         info!("Running command: {}", command_key);
 
         if let Some(app) = crate::GLOBAL_APP.get()
-            && let Err(e) = app.command_runner.run_by_key(&command_key)
+            && let Err(e) = app.command_runner.lock().unwrap().run_by_key(&command_key)
         {
             error!("Failed to run command '{}': {}", command_key, e);
         }
@@ -207,7 +206,13 @@ fn view_command_history_handler() {
     use std::process::Command;
 
     if let Some(app) = GLOBAL_APP.get() {
-        if let Some(path) = app.command_runner.history_path() {
+        let path = app
+            .command_runner
+            .lock()
+            .unwrap()
+            .history_path()
+            .map(ToOwned::to_owned);
+        if let Some(path) = path {
             if path.exists() {
                 match Command::new("open").arg(path).spawn() {
                     Ok(_) => info!("Opened command history log"),
@@ -237,6 +242,30 @@ fn open_config_folder_handler() {
     match Command::new("open").arg("-R").arg(&config_path).spawn() {
         Ok(_) => info!("Opened config folder in Finder"),
         Err(e) => error!("Failed to open config folder: {}", e),
+    }
+}
+
+/// Apply the changed config and rebuild the status menu.
+fn reload_config_handler(handler: &MenuHandler) {
+    let Some(app) = GLOBAL_APP.get() else {
+        return;
+    };
+
+    match app.reload_config() {
+        Ok(config) => {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            if let Some(status_item) = app.get_status_item() {
+                status_item.setMenu(Some(&create_menu(handler, &config, mtm)));
+                update_status_item_title(
+                    &status_item,
+                    app.tunnel_manager.has_active_tunnels(),
+                    mtm,
+                );
+            }
+        }
+        Err(e) => error!("Failed to reload configuration: {e}"),
     }
 }
 
@@ -325,6 +354,24 @@ fn disconnect_all_handler() {
     }
 }
 
+/// Enable the reload action only while the config differs from the applied snapshot.
+fn update_reload_item(menu: &NSMenu) {
+    let changed = GLOBAL_APP.get().is_some_and(|app| app.config_changed());
+    let num_items = menu.numberOfItems();
+    for i in 0..num_items {
+        if let Some(item) = menu.itemAtIndex(i) {
+            if item.tag() == RELOAD_CONFIG_TAG {
+                item.setEnabled(changed);
+                return;
+            }
+
+            if let Some(submenu) = item.submenu() {
+                update_reload_item(&submenu);
+            }
+        }
+    }
+}
+
 /// Update scheduled task items in the menu to show current "Last run" times
 fn update_scheduled_task_items(menu: &NSMenu) {
     use something_bg_core::scheduler::format_last_run;
@@ -380,7 +427,11 @@ fn update_scheduled_task_items(menu: &NSMenu) {
 }
 
 /// Create the NSMenu for the status item.
-pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSMenu> {
+pub fn create_menu(
+    handler: &MenuHandler,
+    config: &Config,
+    mtm: MainThreadMarker,
+) -> Retained<NSMenu> {
     let menu = NSMenu::new(mtm);
 
     // Disable auto-enable so we can manually control item enabled state
@@ -389,9 +440,6 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
     // Set the delegate so menuNeedsUpdate gets called
     let delegate = ProtocolObject::from_ref(handler);
     menu.setDelegate(Some(delegate));
-
-    // Load configuration and create menu items dynamically
-    let config = load_config();
 
     // Create menu items from configuration
     for (key, tunnel_config) in config.tunnels.iter() {
@@ -470,19 +518,37 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
         }
     }
 
-    // Add Separator before Open Config Folder
+    // Add the configuration submenu.
     let separator1 = NSMenuItem::separatorItem(mtm);
     menu.addItem(&separator1);
 
-    // Add "Open Config Folder" item
+    let configuration_item =
+        create_menu_item_with_action(ns_string!("Configuration"), None, ns_string!(""), mtm);
+    let configuration_menu = NSMenu::new(mtm);
+    configuration_menu.setAutoenablesItems(false);
+
+    let reload_item = create_menu_item_with_action(
+        ns_string!("Reload"),
+        Some(sel!(reloadConfig:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_target(&reload_item, handler as &AnyObject);
+    reload_item.setTag(RELOAD_CONFIG_TAG);
+    reload_item.setEnabled(GLOBAL_APP.get().is_some_and(|app| app.config_changed()));
+    configuration_menu.addItem(&reload_item);
+
     let config_folder_item = create_menu_item_with_action(
-        ns_string!("Open Config Folder"),
+        ns_string!("Open Folder"),
         Some(sel!(openConfigFolder:)),
         ns_string!(""),
         mtm,
     );
     set_menu_item_target(&config_folder_item, handler as &AnyObject);
-    menu.addItem(&config_folder_item);
+    configuration_menu.addItem(&config_folder_item);
+
+    configuration_item.setSubmenu(Some(&configuration_menu));
+    menu.addItem(&configuration_item);
 
     // Add "Disconnect All" item
     let disconnect_all_item = create_menu_item_with_action(
@@ -493,7 +559,11 @@ pub fn create_menu(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSM
     );
     set_menu_item_target(&disconnect_all_item, handler as &AnyObject);
     disconnect_all_item.setTag(DISCONNECT_ALL_TAG);
-    disconnect_all_item.setEnabled(false); // Disabled initially (no active tunnels)
+    disconnect_all_item.setEnabled(
+        GLOBAL_APP
+            .get()
+            .is_some_and(|app| app.tunnel_manager.has_active_tunnels()),
+    );
     menu.addItem(&disconnect_all_item);
 
     // Add About item (clickable, opens About window)
@@ -559,7 +629,14 @@ fn create_menu_item(
     let command_id_ns = NSString::from_str(command_id);
     set_menu_item_represented_object(&item, &command_id_ns);
     set_menu_item_target(&item, handler as &AnyObject);
-    item.setState(0); // NSOffState = 0
+    let active = GLOBAL_APP.get().is_some_and(|app| {
+        app.tunnel_manager
+            .active_tunnels
+            .lock()
+            .unwrap()
+            .contains(command_id)
+    });
+    item.setState(if active { 1 } else { 0 });
 
     item
 }
@@ -697,7 +774,11 @@ fn load_icon(icon_spec: &str) -> Option<Retained<NSImage>> {
 }
 
 /// Creates a status bar item and attaches the menu to it.
-pub fn create_status_item(handler: &MenuHandler, mtm: MainThreadMarker) -> Retained<NSStatusItem> {
+pub fn create_status_item(
+    handler: &MenuHandler,
+    config: &Config,
+    mtm: MainThreadMarker,
+) -> Retained<NSStatusItem> {
     let status_bar = NSStatusBar::systemStatusBar();
     let status_item = status_bar.statusItemWithLength(-1.0);
 
@@ -706,7 +787,7 @@ pub fn create_status_item(handler: &MenuHandler, mtm: MainThreadMarker) -> Retai
         button.setTitle(&title);
     }
 
-    status_item.setMenu(Some(&create_menu(handler, mtm)));
+    status_item.setMenu(Some(&create_menu(handler, config, mtm)));
     status_item
 }
 

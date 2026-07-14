@@ -6,11 +6,11 @@ use std::ffi::OsStr;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TunnelCommand {
     pub command: String,
     pub args: Vec<String>,
@@ -24,7 +24,45 @@ pub struct TunnelCommand {
 pub struct TunnelManager {
     pub commands_config: Arc<Mutex<HashMap<String, TunnelCommand>>>,
     pub active_tunnels: Arc<Mutex<HashSet<String>>>,
-    pub env_path: String,
+    pub active_commands: Arc<Mutex<HashMap<String, TunnelCommand>>>,
+    pub generations: Arc<Mutex<HashMap<String, u64>>>,
+    pub env_path: Arc<Mutex<String>>,
+}
+
+fn stop_command(key: &str, command: &TunnelCommand) -> Result<(), String> {
+    info!("Stopping command: {} {:?}", command.command, command.args);
+    let mut child = Command::new(&command.kill_command)
+        .args(&command.kill_args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to start stop command for tunnel '{key}': {e}"))?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => {
+                debug!("Tunnel '{key}' stopped successfully");
+                return Ok(());
+            }
+            Ok(Some(status)) => {
+                return Err(format!(
+                    "Stop command for tunnel '{key}' exited with status {status}"
+                ));
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Stop command for tunnel '{key}' timed out"));
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Failed to wait for tunnel '{key}' stop command: {e}"
+                ));
+            }
+        }
+    }
 }
 
 impl TunnelManager {
@@ -34,33 +72,49 @@ impl TunnelManager {
     /// Toggle a tunnel on/off. Returns `true` if any tunnels are active after the toggle.
     pub fn toggle(&self, command_key: &str, enable: bool) -> bool {
         if enable {
-            // Mark tunnel active
-            {
-                let mut tunnels = self.active_tunnels.lock().unwrap();
-                tunnels.insert(command_key.to_owned());
-            }
+            let command = {
+                let config = self.commands_config.lock().unwrap();
+                config.get(command_key).cloned()
+            };
+            let Some(command) = command else {
+                warn!("No command configuration found while starting '{command_key}'");
+                return self.has_active_tunnels();
+            };
 
-            // Spawn thread
-            let commands_config = self.commands_config.clone();
+            let generation = {
+                let mut generations = self.generations.lock().unwrap();
+                let generation = generations.entry(command_key.to_owned()).or_default();
+                *generation += 1;
+                *generation
+            };
+            self.active_tunnels
+                .lock()
+                .unwrap()
+                .insert(command_key.to_owned());
+            self.active_commands
+                .lock()
+                .unwrap()
+                .insert(command_key.to_owned(), command.clone());
+
             let active_tunnels = self.active_tunnels.clone();
+            let generations = self.generations.clone();
             let command_key = command_key.to_owned();
-            let env_path = self.env_path.clone();
+            let env_path = self.env_path.lock().unwrap().clone();
 
             thread::spawn(move || {
                 let mut attempts = 0;
 
                 // Define closure to check if tunnel is still active
                 let is_active = || {
-                    let tunnels = active_tunnels.lock().unwrap();
-                    tunnels.contains(&command_key)
+                    active_tunnels.lock().unwrap().contains(&command_key)
+                        && generations
+                            .lock()
+                            .unwrap()
+                            .get(&command_key)
+                            .is_some_and(|current| *current == generation)
                 };
 
                 while is_active() && attempts < 5 {
-                    let command = {
-                        let cfg = commands_config.lock().unwrap();
-                        cfg.get(&command_key).unwrap().clone()
-                    };
-
                     info!(
                         "Spawning command: {} {:?} (attempt {})",
                         command.command, command.args, attempts
@@ -105,51 +159,94 @@ impl TunnelManager {
                 }
             });
         } else {
-            // Remove from active set
-            {
-                let mut tunnels = self.active_tunnels.lock().unwrap();
-                tunnels.remove(command_key);
-            }
+            self.active_tunnels.lock().unwrap().remove(command_key);
+            let mut generations = self.generations.lock().unwrap();
+            *generations.entry(command_key.to_owned()).or_default() += 1;
+            drop(generations);
 
-            // Kill the process
-            let cmd_data = {
-                let cfg = self.commands_config.lock().unwrap();
-                cfg.get(command_key).unwrap().clone()
-            };
+            let command = self
+                .active_commands
+                .lock()
+                .unwrap()
+                .remove(command_key)
+                .or_else(|| {
+                    self.commands_config
+                        .lock()
+                        .unwrap()
+                        .get(command_key)
+                        .cloned()
+                });
 
-            info!("Stopping command: {} {:?}", cmd_data.command, cmd_data.args);
-            match Command::new(&cmd_data.kill_command)
-                .args(&cmd_data.kill_args)
-                .output()
-            {
-                Ok(_) => debug!("Tunnel stopped successfully"),
-                Err(e) => error!("Failed to stop tunnel process: {}", e),
+            if let Some(command) = command {
+                if let Err(e) = stop_command(command_key, &command) {
+                    error!("{e}");
+                }
+            } else {
+                warn!("No command configuration found while stopping '{command_key}'");
             }
         }
 
         self.has_active_tunnels()
     }
 
+    /// Apply new definitions, restarting only active tunnels affected by the change.
+    pub fn reconfigure(&self, commands: HashMap<String, TunnelCommand>, env_path: String) {
+        let path_changed = *self.env_path.lock().unwrap() != env_path;
+        let active_commands = self.active_commands.lock().unwrap().clone();
+        let affected: Vec<String> = active_commands
+            .iter()
+            .filter(|(key, active_command)| {
+                path_changed || commands.get(*key) != Some(*active_command)
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+
+        for key in &affected {
+            let mut generations = self.generations.lock().unwrap();
+            *generations.entry(key.clone()).or_default() += 1;
+        }
+
+        for key in &affected {
+            let Some(active_command) = active_commands.get(key) else {
+                continue;
+            };
+            if let Err(e) = stop_command(key, active_command) {
+                error!("Config reload could not restart tunnel '{key}': {e}");
+                continue;
+            }
+            self.active_tunnels.lock().unwrap().remove(key);
+            self.active_commands.lock().unwrap().remove(key);
+        }
+
+        *self.commands_config.lock().unwrap() = commands;
+        *self.env_path.lock().unwrap() = env_path;
+
+        for key in affected {
+            if !self.active_tunnels.lock().unwrap().contains(&key)
+                && self.commands_config.lock().unwrap().contains_key(&key)
+            {
+                self.toggle(&key, true);
+            }
+        }
+    }
+
     /// Cleans up all tunnels when the app terminates.
     pub fn cleanup(&self) {
-        let config = self.commands_config.lock().unwrap();
+        let active_commands = self.active_commands.lock().unwrap().clone();
         let mut active = self.active_tunnels.lock().unwrap();
 
         for key in active.iter() {
             debug!("Cleaning up tunnel: {}", key);
-            if let Some(cmd_data) = config.get(key) {
-                match Command::new(&cmd_data.kill_command)
-                    .args(&cmd_data.kill_args)
-                    .output()
-                {
-                    Ok(_) => debug!("Process stopped for {}", key),
-                    Err(e) => error!("Failed to stop process for {}: {}", key, e),
-                }
+            if let Some(command) = active_commands.get(key)
+                && let Err(e) = stop_command(key, command)
+            {
+                error!("{e}");
             }
         }
 
         // Clear all active
         active.clear();
+        self.active_commands.lock().unwrap().clear();
         debug!("All tunnels cleaned up");
     }
 

@@ -18,6 +18,7 @@ use env_logger;
 use gtk::glib;
 use gtk::prelude::*;
 use log::{error, info, warn};
+use something_bg_core::config::Config;
 use something_bg_core::platform::AppPaths;
 use tray_icon::menu::MenuEvent;
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
@@ -35,7 +36,7 @@ fn main() {
     let running = Arc::new(AtomicBool::new(true));
 
     let (active_icon, idle_icon) = build_icons();
-    let (menu, handles) = build_menu(&config, app_state.scheduler.as_ref());
+    let (menu, handles) = build_menu(&config, app_state.scheduler.as_ref(), false);
     let id_lookup = build_id_lookup(&handles);
 
     let tray_icon = TrayIconBuilder::new()
@@ -64,10 +65,13 @@ fn main() {
         handles,
         id_lookup,
         app_state,
+        config,
         active_icon,
         idle_icon,
         running,
         last_task_refresh: Instant::now(),
+        last_config_check: Instant::now(),
+        reload_available: false,
         last_tick: Instant::now(),
     };
 
@@ -79,10 +83,13 @@ struct EventLoop {
     handles: MenuHandles,
     id_lookup: std::collections::HashMap<muda::MenuId, MenuAction>,
     app_state: AppState,
+    config: Config,
     active_icon: Icon,
     idle_icon: Icon,
     running: Arc<AtomicBool>,
     last_task_refresh: Instant,
+    last_config_check: Instant,
+    reload_available: bool,
     last_tick: Instant,
 }
 
@@ -100,6 +107,15 @@ impl EventLoop {
             // Process menu events (non-blocking)
             while let Ok(event) = MenuEvent::receiver().try_recv() {
                 self.handle_menu_event(event.id);
+            }
+
+            if self.last_config_check.elapsed() > Duration::from_millis(500) {
+                let changed = self.app_state.config_changed();
+                if changed != self.reload_available {
+                    self.reload_available = changed;
+                    self.rebuild_menu();
+                }
+                self.last_config_check = Instant::now();
             }
 
             // Periodically refresh task labels so "Last run" stays current
@@ -153,6 +169,7 @@ impl EventLoop {
                 MenuAction::About => {
                     open_about();
                 }
+                MenuAction::ReloadConfig => self.reload_config(),
                 MenuAction::OpenConfig => open_config(&self.app_state.paths),
                 MenuAction::DisconnectAll => {
                     self.disconnect_all();
@@ -165,6 +182,42 @@ impl EventLoop {
                 }
             }
         }
+    }
+
+    fn reload_config(&mut self) {
+        match self.app_state.reload_config() {
+            Ok(config) => {
+                self.config = config;
+                self.reload_available = false;
+                self.rebuild_menu();
+                self.update_icon(self.app_state.tunnel_manager.has_active_tunnels());
+            }
+            Err(e) => error!("failed to reload configuration: {e}"),
+        }
+    }
+
+    fn rebuild_menu(&mut self) {
+        let (menu, handles) = build_menu(
+            &self.config,
+            self.app_state.scheduler.as_ref(),
+            self.reload_available,
+        );
+
+        let active = self
+            .app_state
+            .tunnel_manager
+            .active_tunnels
+            .lock()
+            .unwrap()
+            .clone();
+        for handle in &handles.tunnels {
+            handle.item.set_checked(active.contains(&handle.key));
+        }
+        handles.disconnect_all.set_enabled(!active.is_empty());
+
+        self.id_lookup = build_id_lookup(&handles);
+        self.handles = handles;
+        self.tray_icon.set_menu(Some(Box::new(menu)));
     }
 
     fn toggle_tunnel(&mut self, key: &str) {
