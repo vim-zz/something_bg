@@ -103,82 +103,81 @@ Configuration is stored in `~/.config/something_bg/config.toml` (created on firs
 ### Example
 
 ```toml
+version = 2
+
+[environment]
 path = "/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin"
 
-# Optional: auto-discover .sh scripts from this directory
-scripts_dir = "~/.config/something_bg/scripts"
+[[sections]]
+id = "database"
+title = "DATABASE"
+icon = "sf:cylinder.fill"
+kind = "tunnel"
 
-[tunnels]
-
-# SSH tunnel with port forwarding
-[tunnels.database-prod]
+[[sections.items]]
+id = "database-prod"
 name = "PROD"
-command = "ssh"
-args = ["-N", "-L", "5432:localhost:5432", "user@server.com"]
-kill_command = "pkill"
-kill_args = ["-f", "user@server.com"]
-group_header = "DATABASE"
-group_icon = "sf:cylinder.fill"
+start = ["ssh", "-N", "-L", "5432:localhost:5432", "user@server.com"]
+stop = ["pkill", "-f", "user@server.com"]
 
-# Port forwarding
-[tunnels.k8s-service]
+[[sections]]
+id = "kubernetes"
+title = "KUBERNETES"
+icon = "sf:cloud.fill"
+kind = "tunnel"
+
+[[sections.items]]
+id = "k8s-service"
 name = "API Service"
-command = "kubectl"
-args = ["port-forward", "svc/api", "8080:8080"]
-kill_command = "pkill"
-kill_args = ["-f", "svc/api"]
-group_header = "KUBERNETES"
-separator_after = true
+start = ["kubectl", "port-forward", "svc/api", "8080:8080"]
+stop = ["pkill", "-f", "svc/api"]
 
-# One-time commands (fire-and-forget)
-[commands.fix-quarantine]
+[[sections]]
+id = "personal"
+title = "PERSONAL"
+icon = "sf:person.fill"
+kind = "command"
+
+[[sections.items]]
+id = "fix-quarantine"
 name = "Fix Whisperer Quarantine"
-command = "xattr"
-args = ["-dr", "com.apple.quarantine", "/Applications/whisperer.app"]
-group_header = "PERSONAL"
-group_icon = "sf:person.fill"
+run = ["xattr", "-dr", "com.apple.quarantine", "/Applications/whisperer.app"]
 
-[commands.deploy]
+[[sections.items]]
+id = "deploy"
 name = "Deploy"
-command = "bash"
-args = ["/Users/me/scripts/deploy.sh"]
-output = "terminal"                 # Opens in Terminal.app
-separator_after = true
+run = ["bash", "/Users/me/scripts/deploy.sh"]
+output = "terminal"
 
-# Scheduled tasks
-[schedules.daily-backup]
+[[sections]]
+id = "scheduled"
+title = "SCHEDULED"
+icon = "sf:clock.fill"
+kind = "scheduled-task"
+
+[[sections.items]]
+id = "daily-backup"
 name = "Daily Backup"
-command = "/usr/local/bin/backup.sh"
-args = []
-cron_schedule = "0 6 * * *"
-group_header = "SCHEDULED"
-group_icon = "sf:clock.fill"
+run = ["/usr/local/bin/backup.sh"]
+cron = "0 6 * * *"
 ```
 
 ### Fields
 
-**Tunnels** (toggleable services):
-- `name` — Display name
-- `command`, `args` — Start command
-- `kill_command`, `kill_args` — Stop command
-- `group_header` _(optional)_ — Section title
-- `group_icon` _(optional)_ — SF Symbol (e.g., `sf:cylinder.fill`)
-- `separator_after` _(optional)_ — Add separator
+- `version` — Config schema version; the current version is `2`.
+- `sections` — Ordered menu sections. The app inserts separators between them.
+- Section `id` — Stable identifier, unique across sections.
+- Section `title` and `icon` — Optional visible heading and SF Symbol.
+- Section `kind` — `"tunnel"`, `"command"`, or `"scheduled-task"`.
+- Item `id` — Stable identifier, unique within its kind.
+- Item `name` — Display name.
+- Tunnel `start` and `stop` — Executable followed by its exact argument list.
+- Command `run` — Executable followed by arguments; `output` controls output handling.
+- Scheduled-task `run` and `cron` — Command and five-field cron expression.
 
-**For Commands:**
-- `name`: Display name in the menu
-- `command` + `args`: Command to execute
-- `output`: Output mode — `"silent"` (default), `"notify"`, or `"terminal"` (see below)
+The order of `[[sections]]` and `[[sections.items]]` entries is the menu order. Commands are executed directly; use `["bash", "-c", "..."]` when shell syntax such as pipes or `&&` is required.
 
-**For Scheduled Tasks:**
-- `name`: Display name in the menu
-- `command` + `args`: Command to execute
-- `cron_schedule`: Cron expression for scheduling (e.g., "0 6 * * *")
-
-**Optional fields (all types):**
-- `group_header`: Section title (e.g., "DATABASE", "SCHEDULED TASKS")
-- `group_icon`: SF Symbol name for the header (e.g., "sf:cylinder.fill", "sf:clock.fill")
-- `separator_after`: Add a visual separator line after this item
+Legacy unversioned files and `version = 1` files are migrated automatically. The original is retained as `config.toml.v1.bak`, while `config.toml` is rewritten in the current format.
 
 ### One-Time Commands
 
@@ -191,23 +190,30 @@ Run any command with a single click from the menu bar. Each command has a config
 | `terminal` | Open a terminal window with live output | Long/interactive scripts, debugging |
 
 ```toml
-[commands.fix-quarantine]
+version = 2
+
+[[sections]]
+id = "utilities"
+title = "UTILITIES"
+kind = "command"
+
+[[sections.items]]
+id = "fix-quarantine"
 name = "Fix Quarantine"
-command = "xattr"
-args = ["-dr", "com.apple.quarantine", "/Applications/myapp.app"]
+run = ["xattr", "-dr", "com.apple.quarantine", "/Applications/myapp.app"]
 # output defaults to "silent"
 
-[commands.backup]
+[[sections.items]]
+id = "backup"
 name = "Run Backup"
-command = "bash"
-args = ["/usr/local/bin/backup.sh"]
-output = "notify"                    # Shows notification when done
+run = ["bash", "/usr/local/bin/backup.sh"]
+output = "notify"
 
-[commands.deploy]
+[[sections.items]]
+id = "deploy"
 name = "Deploy"
-command = "bash"
-args = ["/usr/local/bin/deploy.sh"]
-output = "terminal"                  # Opens in Terminal.app
+run = ["bash", "/usr/local/bin/deploy.sh"]
+output = "terminal"
 ```
 
 ### Scripts Directory
@@ -215,7 +221,18 @@ output = "terminal"                  # Opens in Terminal.app
 Auto-discover shell scripts from a directory. All `*.sh` files appear in the menu under a "Scripts" header, sorted alphabetically. Default output mode is `notify`.
 
 ```toml
-scripts_dir = "~/.config/something_bg/scripts"
+version = 2
+
+[scripts]
+directory = "~/.config/something_bg/scripts"
+output = "notify"
+section = "scripts"
+
+[[sections]]
+id = "scripts"
+title = "SCRIPTS"
+icon = "sf:terminal.fill"
+kind = "command"
 ```
 
 Filenames are title-cased for display: `delete-logs.sh` → "Delete Logs".
@@ -223,6 +240,7 @@ Filenames are title-cased for display: `delete-logs.sh` → "Delete Logs".
 ### Scheduled Tasks
 
 Common cron patterns:
+
 - `0 * * * *` — Every hour
 - `*/15 * * * *` — Every 15 minutes
 - `0 6 * * *` — Daily at 6am
@@ -230,7 +248,8 @@ Common cron patterns:
 
 ### SF Symbols (macOS icons)
 
-Common symbols for `group_icon`:
+Common symbols for section `icon`:
+
 - `sf:cylinder.fill` — Database
 - `sf:shippingbox.fill` — Cache/Redis
 - `sf:cloud.fill` — Cloud/Kubernetes
@@ -241,7 +260,7 @@ Common symbols for `group_icon`:
 
 Browse all symbols at [developer.apple.com/sf-symbols](https://developer.apple.com/sf-symbols/) or use the SF Symbols app.
 
-Restart the app after editing the config.
+Reload the configuration from the tray menu after editing the file.
 
 ## License
 

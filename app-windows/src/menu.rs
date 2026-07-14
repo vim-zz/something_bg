@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use log::debug;
-use something_bg_core::config::Config;
+use something_bg_core::config::{Config, SectionKind};
 use something_bg_core::scheduler::{TaskScheduler, cron_to_human_readable, format_last_run};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 
@@ -41,113 +41,104 @@ pub fn build_menu(
     let menu = Menu::new();
 
     let mut tunnels = Vec::new();
-    for (key, tunnel) in &config.tunnels {
-        maybe_add_group_header(&menu, tunnel.group_header.as_deref());
-
-        let item = CheckMenuItem::new(&tunnel.name, true, false, None);
-        let id = item.id().clone();
-        if let Err(e) = menu.append(&item) {
-            debug!("failed to append tunnel item: {e}");
-        }
-        tunnels.push(TunnelHandle {
-            id,
-            key: key.clone(),
-            item: item.clone(),
-        });
-
-        if tunnel.separator_after.unwrap_or(false) {
-            if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
-                debug!("failed to append separator: {e}");
-            }
-        }
-    }
-
     let mut commands = Vec::new();
+    let mut tasks = Vec::new();
     let mut view_history_id = None;
-    if !config.commands.is_empty() {
-        if !config.tunnels.is_empty() {
-            if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
-                debug!("failed to append separator: {e}");
-            }
+    let last_command_section = config
+        .sections
+        .iter()
+        .rposition(|section| section.kind == SectionKind::Command && !section.item_ids.is_empty());
+    let mut rendered_section = false;
+
+    for (section_index, section) in config.sections.iter().enumerate() {
+        if section.item_ids.is_empty() {
+            continue;
         }
+        if rendered_section && let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
+            debug!("failed to append section separator: {e}");
+        }
+        rendered_section = true;
+        maybe_add_group_header(&menu, section.title.as_deref());
 
-        for (key, cmd) in &config.commands {
-            maybe_add_group_header(&menu, cmd.group_header.as_deref());
-
-            let item = MenuItem::new(&cmd.name, true, None);
-            let id = item.id().clone();
-            if let Err(e) = menu.append(&item) {
-                debug!("failed to append command item: {e}");
-            }
-            commands.push(CommandHandle {
-                id,
-                key: key.clone(),
-            });
-
-            if cmd.separator_after.unwrap_or(false) {
-                if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
-                    debug!("failed to append separator: {e}");
+        for key in &section.item_ids {
+            match section.kind {
+                SectionKind::Tunnel => {
+                    let Some(tunnel) = config.tunnel(key) else {
+                        continue;
+                    };
+                    let item = CheckMenuItem::new(&tunnel.name, true, false, None);
+                    let id = item.id().clone();
+                    if let Err(e) = menu.append(&item) {
+                        debug!("failed to append tunnel item: {e}");
+                    }
+                    tunnels.push(TunnelHandle {
+                        id,
+                        key: key.clone(),
+                        item: item.clone(),
+                    });
+                }
+                SectionKind::Command => {
+                    let Some(command) = config.command(key) else {
+                        continue;
+                    };
+                    let item = MenuItem::new(&command.name, true, None);
+                    let id = item.id().clone();
+                    if let Err(e) = menu.append(&item) {
+                        debug!("failed to append command item: {e}");
+                    }
+                    commands.push(CommandHandle {
+                        id,
+                        key: key.clone(),
+                    });
+                }
+                SectionKind::ScheduledTask => {
+                    let Some(task) = config.schedule(key) else {
+                        continue;
+                    };
+                    let schedule_item = MenuItem::new(
+                        format!("Schedule: {}", cron_to_human_readable(&task.cron_schedule)),
+                        false,
+                        None,
+                    );
+                    if let Err(e) = menu.append(&schedule_item) {
+                        debug!("failed to append schedule label: {e}");
+                    }
+                    let last_run_item = MenuItem::new(
+                        format!(
+                            "Last run: {}",
+                            format_last_run(&scheduler.get_task(key).and_then(|t| t.last_run))
+                        ),
+                        false,
+                        None,
+                    );
+                    if let Err(e) = menu.append(&last_run_item) {
+                        debug!("failed to append last-run label: {e}");
+                    }
+                    let run_now = MenuItem::new("Run now", true, None);
+                    let run_id = run_now.id().clone();
+                    if let Err(e) = menu.append(&run_now) {
+                        debug!("failed to append run-now item: {e}");
+                    }
+                    tasks.push(TaskHandle {
+                        key: key.clone(),
+                        run_id,
+                        last_run_item: last_run_item.clone(),
+                    });
                 }
             }
         }
 
-        let view_history = MenuItem::new("View command history", true, None);
-        view_history_id = Some(view_history.id().clone());
-        if let Err(e) = menu.append(&view_history) {
-            debug!("failed to append view-history item: {e}");
-        }
-    }
-
-    if !config.schedules.is_empty() && (!config.tunnels.is_empty() || !config.commands.is_empty()) {
-        if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
-            debug!("failed to append separator: {e}");
-        }
-    }
-
-    let mut tasks = Vec::new();
-    for (key, task) in &config.schedules {
-        maybe_add_group_header(&menu, task.group_header.as_deref());
-
-        let schedule_line = format!("Schedule: {}", cron_to_human_readable(&task.cron_schedule));
-        let schedule_item = MenuItem::new(&schedule_line, false, None);
-        if let Err(e) = menu.append(&schedule_item) {
-            debug!("failed to append schedule label: {e}");
-        }
-
-        let last_run_item = MenuItem::new(
-            &format!(
-                "Last run: {}",
-                format_last_run(&scheduler.get_task(key).map(|t| t.last_run).flatten())
-            ),
-            false,
-            None,
-        );
-        if let Err(e) = menu.append(&last_run_item) {
-            debug!("failed to append last-run label: {e}");
-        }
-
-        let run_now = MenuItem::new("Run now", true, None);
-        let run_id = run_now.id().clone();
-        if let Err(e) = menu.append(&run_now) {
-            debug!("failed to append run-now item: {e}");
-        }
-        tasks.push(TaskHandle {
-            key: key.clone(),
-            run_id,
-            last_run_item: last_run_item.clone(),
-        });
-
-        if task.separator_after.unwrap_or(false) {
-            if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
-                debug!("failed to append separator: {e}");
+        if Some(section_index) == last_command_section {
+            let view_history = MenuItem::new("View command history", true, None);
+            view_history_id = Some(view_history.id().clone());
+            if let Err(e) = menu.append(&view_history) {
+                debug!("failed to append view-history item: {e}");
             }
         }
     }
 
-    if !config.tunnels.is_empty() || !config.commands.is_empty() || !config.schedules.is_empty() {
-        if let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
-            debug!("failed to append separator: {e}");
-        }
+    if rendered_section && let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
+        debug!("failed to append separator: {e}");
     }
 
     let reload_config_id = if show_reload {

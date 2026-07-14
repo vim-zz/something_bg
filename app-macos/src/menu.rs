@@ -14,7 +14,9 @@ use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, n
 
 use crate::GLOBAL_APP;
 use crate::paths::MacPaths;
-use something_bg_core::config::{CommandConfig, Config, ScheduledTaskConfig, TunnelConfig};
+use something_bg_core::config::{
+    CommandConfig, Config, ScheduledTaskConfig, SectionKind, TunnelConfig,
+};
 use something_bg_core::platform::AppPaths;
 
 // These are backup icons if image loading fails
@@ -441,80 +443,54 @@ pub fn create_menu(
     let delegate = ProtocolObject::from_ref(handler);
     menu.setDelegate(Some(delegate));
 
-    // Create menu items from configuration
-    for (key, tunnel_config) in config.tunnels.iter() {
-        // Add group header if specified
-        if let Some(group_header) = &tunnel_config.group_header {
-            let header_item =
-                create_header_item(group_header, tunnel_config.group_icon.as_deref(), mtm);
-            menu.addItem(&header_item);
+    // Render user-defined sections in exactly the order declared in config.
+    let last_command_section = config
+        .sections
+        .iter()
+        .rposition(|section| section.kind == SectionKind::Command && !section.item_ids.is_empty());
+    let mut rendered_section = false;
+    for (section_index, section) in config.sections.iter().enumerate() {
+        if section.item_ids.is_empty() {
+            continue;
+        }
+        if rendered_section {
+            menu.addItem(&NSMenuItem::separatorItem(mtm));
+        }
+        rendered_section = true;
+
+        if let Some(title) = &section.title {
+            menu.addItem(&create_header_item(title, section.icon.as_deref(), mtm));
         }
 
-        let menu_item = create_menu_item(handler, tunnel_config, key, mtm);
-        menu.addItem(&menu_item);
-
-        // Add separator after this item if configured
-        if tunnel_config.separator_after.unwrap_or(false) {
-            let separator = NSMenuItem::separatorItem(mtm);
-            menu.addItem(&separator);
-        }
-    }
-
-    // Add commands section
-    if !config.commands.is_empty() {
-        let separator = NSMenuItem::separatorItem(mtm);
-        menu.addItem(&separator);
-
-        for (key, cmd_config) in config.commands.iter() {
-            // Add group header if specified
-            if let Some(group_header) = &cmd_config.group_header {
-                let header_item =
-                    create_header_item(group_header, cmd_config.group_icon.as_deref(), mtm);
-                menu.addItem(&header_item);
-            }
-
-            let cmd_item = create_command_menu_item(handler, cmd_config, key, mtm);
-            menu.addItem(&cmd_item);
-
-            // Add separator after this item if configured
-            if cmd_config.separator_after.unwrap_or(false) {
-                let separator = NSMenuItem::separatorItem(mtm);
-                menu.addItem(&separator);
+        for key in &section.item_ids {
+            match section.kind {
+                SectionKind::Tunnel => {
+                    if let Some(tunnel) = config.tunnel(key) {
+                        menu.addItem(&create_menu_item(handler, tunnel, key, mtm));
+                    }
+                }
+                SectionKind::Command => {
+                    if let Some(command) = config.command(key) {
+                        menu.addItem(&create_command_menu_item(handler, command, key, mtm));
+                    }
+                }
+                SectionKind::ScheduledTask => {
+                    if let Some(task) = config.schedule(key) {
+                        menu.addItem(&create_scheduled_task_item(handler, task, key, mtm));
+                    }
+                }
             }
         }
 
-        // "View Command History" at the end of the commands section
-        let history_item = create_menu_item_with_action(
-            ns_string!("View Command History"),
-            Some(sel!(viewCommandHistory:)),
-            ns_string!(""),
-            mtm,
-        );
-        set_menu_item_target(&history_item, handler as &AnyObject);
-        menu.addItem(&history_item);
-    }
-
-    // Add scheduled tasks section
-    if !config.schedules.is_empty() {
-        let separator = NSMenuItem::separatorItem(mtm);
-        menu.addItem(&separator);
-
-        for (key, task_config) in config.schedules.iter() {
-            // Add group header if specified
-            if let Some(group_header) = &task_config.group_header {
-                let header_item =
-                    create_header_item(group_header, task_config.group_icon.as_deref(), mtm);
-                menu.addItem(&header_item);
-            }
-
-            let scheduled_menu_item = create_scheduled_task_item(handler, task_config, key, mtm);
-            menu.addItem(&scheduled_menu_item);
-
-            // Add separator after this item if configured
-            if task_config.separator_after.unwrap_or(false) {
-                let separator = NSMenuItem::separatorItem(mtm);
-                menu.addItem(&separator);
-            }
+        if Some(section_index) == last_command_section {
+            let history_item = create_menu_item_with_action(
+                ns_string!("View Command History"),
+                Some(sel!(viewCommandHistory:)),
+                ns_string!(""),
+                mtm,
+            );
+            set_menu_item_target(&history_item, handler as &AnyObject);
+            menu.addItem(&history_item);
         }
     }
 

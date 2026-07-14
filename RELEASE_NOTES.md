@@ -1,5 +1,17 @@
 # Release Notes - Something in the Background
 
+## v1.10.0
+
+**Release Date:** July 14, 2026
+
+### Versioned Configuration Sections
+
+- Added the v2 TOML format with explicitly ordered menu sections and section-owned titles and icons.
+- Tunnels now use `start` and `stop` command arrays; one-time commands and scheduled tasks use `run`, with scheduled tasks declaring `cron`.
+- Unversioned and `version = 1` configurations are migrated automatically and retained as `config.toml.v1.bak`.
+- Configuration parsing now dispatches through permanent version-specific migration adapters so older formats remain supported by future releases.
+- Menu sections render in configuration order on macOS, Linux, and Windows.
+
 ## v1.9.0
 
 **Release Date:** July 14, 2026
