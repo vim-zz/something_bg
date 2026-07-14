@@ -20,13 +20,13 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -65,13 +65,12 @@ jobs:
     name: build release asset (${{ matrix.name }})
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: macos
-            os: macos-latest
-            artifact_name: something_bg-macos-universal.zip
           - name: linux
             os: ubuntu-latest
             artifact_name: something_bg-linux-x86_64-unknown-linux-gnu.tar.gz
@@ -80,13 +79,13 @@ jobs:
             artifact_name: something_bg-windows-x86_64-pc-windows-msvc.zip
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -99,16 +98,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
-
-      - name: Install cargo-bundle (macOS)
-        if: matrix.name == 'macos'
-        run: cargo install cargo-bundle
-
-      - name: Build and package macOS app
-        if: matrix.name == 'macos'
-        run: |
-          ./scripts/bundle-macos.sh
-          ditto -c -k --keepParent "target/release/bundle/osx/Something in the Background.app" "${{ matrix.artifact_name }}"
 
       - name: Build and package Linux binary
         if: matrix.name == 'linux'
@@ -127,29 +116,109 @@ jobs:
           Compress-Archive -Path "target/release/something_bg_windows.exe" -DestinationPath "${{ matrix.artifact_name }}"
 
       - name: Upload release asset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-${{ matrix.name }}
           path: ${{ matrix.artifact_name }}
           if-no-files-found: error
 
+  build-macos-release:
+    name: build unsigned macOS release asset
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle --version 0.9.0 --locked
+
+      - name: Build macOS app
+        run: |
+          ./scripts/bundle-macos.sh
+          ditto -c -k --keepParent \
+            "target/release/bundle/osx/Something in the Background.app" \
+            "something_bg-macos-unsigned.zip"
+
+      - name: Upload unsigned macOS app
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-macos-app
+          path: something_bg-macos-unsigned.zip
+          if-no-files-found: error
+
+  sign-macos-release:
+    name: sign and notarize macOS release asset
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint-test, build-macos-release]
+    runs-on: macos-latest
+    environment: release
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download unsigned macOS app
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-macos-app
+
+      - name: Extract unsigned macOS app
+        run: |
+          mkdir -p target/release/bundle/osx
+          ditto -x -k "something_bg-macos-unsigned.zip" target/release/bundle/osx
+
+      - name: Sign and notarize macOS app
+        env:
+          APPLE_DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ./scripts/sign-and-notarize-macos.sh \
+            "target/release/bundle/osx/Something in the Background.app" \
+            "something_bg-macos-universal.zip"
+
+      - name: Upload signed macOS release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-macos
+          path: something_bg-macos-universal.zip
+          if-no-files-found: error
+
   publish-release:
     name: publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-release-assets
+    needs: [build-release-assets, sign-macos-release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           pattern: release-*
           merge-multiple: true
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: dist/*
           generate_release_notes: true

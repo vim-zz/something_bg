@@ -1,5 +1,14 @@
 # Release Notes - Something in the Background
 
+## v1.10.1
+
+**Release Date:** July 14, 2026
+
+### Signed macOS Releases
+
+- GitHub release builds for macOS are now Developer ID signed with the hardened runtime, notarized by Apple, and stapled before publication.
+- Signing and notarization credentials are isolated on a clean protected-environment runner and removed after use; reusable workflow actions are pinned to immutable revisions.
+
 ## v1.10.0
 
 **Release Date:** July 14, 2026

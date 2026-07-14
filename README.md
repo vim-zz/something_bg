@@ -23,12 +23,7 @@ A native menu bar utility for managing background processes, SSH tunnels, and sc
 
 Download the latest macOS zip from the [GitHub Releases page](https://github.com/vim-zz/something_bg/releases), unzip it, then move `Something in the Background.app` to `/Applications`.
 
-> [!IMPORTANT]
-> Because the GitHub-built app is currently not signed or notarized, macOS may show a warning that the app is "corrupted" or say it should be moved to the Trash. If that happens, run:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/Something in the Background.app"
-```
+Starting with v1.10.1, GitHub release builds are signed with a Developer ID certificate and notarized by Apple before publication.
 
 #### Build from source
 
