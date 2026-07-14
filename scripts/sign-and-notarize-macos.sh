@@ -35,8 +35,34 @@ CERTIFICATE_PATH="$WORK_DIR/developer-id-application.p12"
 NOTARY_ARCHIVE_PATH="$WORK_DIR/notarization.zip"
 NOTARY_PROFILE="something-bg-ci-notary"
 KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+ORIGINAL_KEYCHAINS=()
+ORIGINAL_DEFAULT_KEYCHAIN="$(
+    security default-keychain -d user 2>/dev/null \
+        | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' \
+        || true
+)"
+
+while IFS= read -r keychain; do
+    if [[ -n "$keychain" ]]; then
+        ORIGINAL_KEYCHAINS+=("$keychain")
+    fi
+done < <(
+    security list-keychains -d user \
+        | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' \
+        || true
+)
 
 cleanup() {
+    if [[ -n "$ORIGINAL_DEFAULT_KEYCHAIN" ]]; then
+        security default-keychain \
+            -d user \
+            -s "$ORIGINAL_DEFAULT_KEYCHAIN" >/dev/null 2>&1 || true
+    fi
+    if [[ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
+        security list-keychains \
+            -d user \
+            -s "${ORIGINAL_KEYCHAINS[@]}" >/dev/null 2>&1 || true
+    fi
     security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
     rm -rf "$WORK_DIR"
 }
@@ -48,6 +74,10 @@ chmod 600 "$CERTIFICATE_PATH"
 security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
 security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+security list-keychains \
+    -d user \
+    -s "$KEYCHAIN_PATH" "${ORIGINAL_KEYCHAINS[@]}"
+security default-keychain -d user -s "$KEYCHAIN_PATH"
 security import "$CERTIFICATE_PATH" \
     -k "$KEYCHAIN_PATH" \
     -f pkcs12 \
