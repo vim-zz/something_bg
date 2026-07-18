@@ -1,5 +1,13 @@
 # Release Notes - Something in the Background
 
+## v1.11.1
+
+**Release Date:** July 18, 2026
+
+### Update Verification
+
+- Published a no-op release to verify automatic update discovery, download, signature validation, and replacement from v1.11.0.
+
 ## v1.11.0
 
 **Release Date:** July 18, 2026
