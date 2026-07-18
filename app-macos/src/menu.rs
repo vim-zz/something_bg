@@ -67,9 +67,9 @@ define_class!(
             }
         }
 
-        #[unsafe(method(openConfigFolder:))]
-        fn open_config_folder(&self, _item: &NSMenuItem) {
-            open_config_folder_handler();
+        #[unsafe(method(editConfig:))]
+        fn edit_config(&self, _item: &NSMenuItem) {
+            edit_config_handler();
         }
 
         #[unsafe(method(reloadConfig:))]
@@ -243,8 +243,8 @@ fn view_command_history_handler() {
     }
 }
 
-/// Open the config folder in Finder using the current app paths.
-fn open_config_folder_handler() {
+/// Open the config file in its default macOS application.
+fn edit_config_handler() {
     use log::{error, info};
     use std::process::Command;
 
@@ -257,9 +257,9 @@ fn open_config_folder_handler() {
     // Ensure the config file exists by triggering load (creates default if missing)
     let _ = Config::load_with(&MacPaths::default());
 
-    match Command::new("open").arg("-R").arg(&config_path).spawn() {
-        Ok(_) => info!("Opened config folder in Finder"),
-        Err(e) => error!("Failed to open config folder: {}", e),
+    match Command::new("open").arg(&config_path).spawn() {
+        Ok(_) => info!("Opened config file for editing"),
+        Err(e) => error!("Failed to open config file: {}", e),
     }
 }
 
@@ -530,14 +530,14 @@ pub fn create_menu(
         }
     }
 
-    // Add the configuration submenu.
+    // Add the settings submenu.
     let separator1 = NSMenuItem::separatorItem(mtm);
     menu.addItem(&separator1);
 
-    let configuration_item =
-        create_menu_item_with_action(ns_string!("Configuration"), None, ns_string!(""), mtm);
-    let configuration_menu = NSMenu::new(mtm);
-    configuration_menu.setAutoenablesItems(false);
+    let settings_item =
+        create_menu_item_with_action(ns_string!("Settings"), None, ns_string!(""), mtm);
+    let settings_menu = NSMenu::new(mtm);
+    settings_menu.setAutoenablesItems(false);
 
     let reload_item = create_menu_item_with_action(
         ns_string!("Reload"),
@@ -548,19 +548,19 @@ pub fn create_menu(
     set_menu_item_target(&reload_item, handler as &AnyObject);
     reload_item.setTag(RELOAD_CONFIG_TAG);
     reload_item.setEnabled(GLOBAL_APP.get().is_some_and(|app| app.config_changed()));
-    configuration_menu.addItem(&reload_item);
+    settings_menu.addItem(&reload_item);
 
-    let config_folder_item = create_menu_item_with_action(
-        ns_string!("Open Folder"),
-        Some(sel!(openConfigFolder:)),
+    let edit_config_item = create_menu_item_with_action(
+        ns_string!("Edit..."),
+        Some(sel!(editConfig:)),
         ns_string!(""),
         mtm,
     );
-    set_menu_item_target(&config_folder_item, handler as &AnyObject);
-    configuration_menu.addItem(&config_folder_item);
+    set_menu_item_target(&edit_config_item, handler as &AnyObject);
+    settings_menu.addItem(&edit_config_item);
 
-    configuration_item.setSubmenu(Some(&configuration_menu));
-    menu.addItem(&configuration_item);
+    settings_item.setSubmenu(Some(&settings_menu));
+    menu.addItem(&settings_item);
 
     // Add "Disconnect All" item
     let disconnect_all_item = create_menu_item_with_action(
@@ -578,16 +578,6 @@ pub fn create_menu(
     );
     menu.addItem(&disconnect_all_item);
 
-    // Add About item (clickable, opens About window)
-    let about_item = create_menu_item_with_action(
-        ns_string!("About"),
-        Some(sel!(displayAppInfo:)),
-        ns_string!(""),
-        mtm,
-    );
-    set_menu_item_target(&about_item, handler as &AnyObject);
-    menu.addItem(&about_item);
-
     let update_item = create_menu_item_with_action(
         ns_string!("Check for Updates..."),
         Some(sel!(checkForUpdates:)),
@@ -598,6 +588,16 @@ pub fn create_menu(
     update_item.setTag(CHECK_FOR_UPDATES_TAG);
     update_item.setEnabled(crate::updater::can_check_for_updates());
     menu.addItem(&update_item);
+
+    // Add About item (clickable, opens About window)
+    let about_item = create_menu_item_with_action(
+        ns_string!("About"),
+        Some(sel!(displayAppInfo:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_target(&about_item, handler as &AnyObject);
+    menu.addItem(&about_item);
 
     // Add Separator before Quit
     let separator1 = NSMenuItem::separatorItem(mtm);

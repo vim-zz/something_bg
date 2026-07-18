@@ -1,5 +1,15 @@
 # Release Notes - Something in the Background
 
+## v1.11.2
+
+**Release Date:** July 18, 2026
+
+### Menu Refinements
+
+- Moved **Check for Updates...** above **About** in the macOS status menu.
+- Renamed **Configuration** to **Settings** and replaced **Open Folder** with **Edit...**, which opens `config.toml` in its default macOS application.
+- Prevented development launches from crashing when macOS does not provide a legacy notification center to an unbundled process.
+
 ## v1.11.1
 
 **Release Date:** July 18, 2026

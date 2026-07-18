@@ -271,8 +271,12 @@ pub fn setup_notification_center(mtm: MainThreadMarker) {
             warn!("NSUserNotificationCenter not available");
             return;
         };
-        let center: Retained<AnyObject> =
-            objc2::msg_send![center_class, defaultUserNotificationCenter];
+        let Some(center): Option<Retained<AnyObject>> =
+            objc2::msg_send![center_class, defaultUserNotificationCenter]
+        else {
+            warn!("NSUserNotificationCenter unavailable for this process");
+            return;
+        };
         let delegate = NotifDelegate::new(mtm);
         let _: () = objc2::msg_send![&center, setDelegate: &*delegate];
         // Delegate must stay alive for the app lifetime; intentional leak for singleton
@@ -289,8 +293,12 @@ pub fn send_notification(title: &str, body: &str) {
             warn!("NSUserNotificationCenter class not available");
             return;
         };
-        let center: Retained<AnyObject> =
-            objc2::msg_send![center_class, defaultUserNotificationCenter];
+        let Some(center): Option<Retained<AnyObject>> =
+            objc2::msg_send![center_class, defaultUserNotificationCenter]
+        else {
+            warn!("NSUserNotificationCenter unavailable for this process");
+            return;
+        };
 
         let Some(notif_class) = AnyClass::get(c"NSUserNotification") else {
             warn!("NSUserNotification class not available");
