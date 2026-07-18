@@ -25,6 +25,8 @@ On an Apple Silicon Mac, download `something_bg-macos-arm64.zip` from the [GitHu
 
 Starting with v1.10.1, GitHub release builds are signed with a Developer ID certificate and notarized by Apple before publication.
 
+Starting with v1.11.0, the macOS app uses Sparkle for secure in-app updates. Open the status menu and choose **Check for Updates...** to run Sparkle's standard interactive update flow. The app also checks quietly at launch and once per hour; when it discovers a newer version, the menu action changes to **Update Available...** without interrupting you. The first v1.11.0 installation is manual because older versions do not contain the updater.
+
 The packaged macOS release currently targets Apple Silicon (`arm64`). Intel Mac users can build the app from source on an Intel Mac.
 
 #### Build from source
@@ -50,6 +52,31 @@ cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/
 ```
 
 Launch from Applications or run: `open "/Applications/Something in the Background.app"`
+
+Source builds do not require Sparkle. When `Sparkle.framework` is absent, the app continues to run and disables **Check for Updates...**. To build a Sparkle-enabled bundle, fetch the pinned framework and provide the public EdDSA key:
+
+```bash
+./scripts/fetch-sparkle.sh
+SOMETHING_BG_SPARKLE_PUBLIC_ED_KEY="your_public_key" \
+SOMETHING_BG_REQUIRE_SPARKLE=1 \
+./scripts/bundle-macos.sh
+```
+
+For local development, these variables may instead be stored in a git-ignored
+`.env` file at the repository root. The macOS bundle and local Sparkle fixture
+scripts load that file automatically.
+
+### Test macOS updates locally
+
+The full replacement flow must use a bundled app, signed update ZIP, and HTTP appcast; `cargo run` cannot exercise it. After creating a Sparkle key pair, prepare the fixture without installing or launching anything:
+
+```bash
+SOMETHING_BG_SPARKLE_PUBLIC_ED_KEY="your_public_key" \
+SOMETHING_BG_SPARKLE_PRIVATE_KEY="your_private_key" \
+./scripts/prepare-local-sparkle-update.sh
+```
+
+The script writes ignored files under `target/sparkle-dev/` and prints separate commands to serve the fixture, install the seed bundle manually, and verify the replacement marker.
 
 ### Linux
 

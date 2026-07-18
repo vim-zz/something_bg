@@ -34,6 +34,7 @@ KEYCHAIN_PATH="$WORK_DIR/release-signing.keychain-db"
 CERTIFICATE_PATH="$WORK_DIR/developer-id-application.p12"
 NOTARY_ARCHIVE_PATH="$WORK_DIR/notarization.zip"
 NOTARY_PROFILE="something-bg-ci-notary"
+SPARKLE_FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
 KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
 ORIGINAL_KEYCHAINS=()
 ORIGINAL_DEFAULT_KEYCHAIN="$(
@@ -100,13 +101,43 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
     exit 1
 fi
 
-codesign \
-    --force \
-    --options runtime \
-    --timestamp \
-    --keychain "$KEYCHAIN_PATH" \
-    --sign "$SIGNING_IDENTITY" \
-    "$APP_PATH"
+if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
+    echo "::error::Sparkle.framework is missing from the release bundle" >&2
+    exit 1
+fi
+
+sign_sparkle_component() {
+    local component_path="$1"
+    shift
+    if [[ ! -e "$component_path" ]]; then
+        echo "::error::Required Sparkle component not found: $component_path" >&2
+        exit 1
+    fi
+    codesign \
+        --force \
+        --options runtime \
+        --timestamp \
+        --keychain "$KEYCHAIN_PATH" \
+        --sign "$SIGNING_IDENTITY" \
+        "$@" \
+        "$component_path"
+}
+
+SPARKLE_VERSION_ROOT="$SPARKLE_FRAMEWORK/Versions/B"
+sign_sparkle_component "$SPARKLE_VERSION_ROOT/XPCServices/Installer.xpc"
+sign_sparkle_component \
+    "$SPARKLE_VERSION_ROOT/XPCServices/Downloader.xpc" \
+    --preserve-metadata=entitlements
+sign_sparkle_component "$SPARKLE_VERSION_ROOT/Autoupdate"
+sign_sparkle_component "$SPARKLE_VERSION_ROOT/Updater.app"
+sign_sparkle_component "$SPARKLE_FRAMEWORK"
+sign_sparkle_component "$APP_PATH"
+
+codesign --verify --strict --verbose=2 "$SPARKLE_VERSION_ROOT/XPCServices/Installer.xpc"
+codesign --verify --strict --verbose=2 "$SPARKLE_VERSION_ROOT/XPCServices/Downloader.xpc"
+codesign --verify --strict --verbose=2 "$SPARKLE_VERSION_ROOT/Autoupdate"
+codesign --verify --strict --verbose=2 "$SPARKLE_VERSION_ROOT/Updater.app"
+codesign --verify --strict --verbose=2 "$SPARKLE_FRAMEWORK"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 ditto -c -k --keepParent "$APP_PATH" "$NOTARY_ARCHIVE_PATH"

@@ -1,5 +1,16 @@
 # Release Notes - Something in the Background
 
+## v1.11.0
+
+**Release Date:** July 18, 2026
+
+### Secure In-App Updates
+
+- Added Sparkle-powered **Check for Updates...** support to the macOS status menu.
+- Automatic checks stay quiet and change the menu action to **Update Available...** when a newer release is discovered.
+- macOS releases now embed pinned Sparkle 2.9.4, explicitly sign its nested helpers, and publish a signed appcast alongside the signed and notarized application ZIP.
+- Added a local end-to-end update fixture for validating download, replacement, cleanup, and relaunch before publishing.
+
 ## v1.10.1
 
 **Release Date:** July 14, 2026

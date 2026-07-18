@@ -26,6 +26,7 @@ const ICON_ACTIVE: &str = "●"; // Filled circle for active
 // Tag to identify the "Disconnect All" menu item
 const DISCONNECT_ALL_TAG: isize = 9999;
 const RELOAD_CONFIG_TAG: isize = 10_000;
+const CHECK_FOR_UPDATES_TAG: isize = 10_001;
 
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
@@ -44,6 +45,7 @@ define_class!(
         fn menu_needs_update(&self, menu: &NSMenu) {
             update_scheduled_task_items(menu);
             update_reload_item(menu);
+            update_check_for_updates_item(menu);
         }
     }
 
@@ -56,6 +58,13 @@ define_class!(
         #[unsafe(method(applicationWillTerminate:))]
         fn application_will_terminate(&self, _notification: &NSObject) {
             crate::application_will_terminate_handler();
+        }
+
+        #[unsafe(method(applicationDidFinishLaunching:))]
+        fn application_did_finish_launching(&self, _notification: &NSObject) {
+            if let Err(error) = crate::updater::start_automatic_checks() {
+                warn!("Updater unavailable: {error}");
+            }
         }
 
         #[unsafe(method(openConfigFolder:))]
@@ -76,6 +85,13 @@ define_class!(
         #[unsafe(method(displayAppInfo:))]
         fn display_app_info(&self, _item: &NSMenuItem) {
             crate::about::show_about_window();
+        }
+
+        #[unsafe(method(checkForUpdates:))]
+        fn check_for_updates(&self, _item: &NSMenuItem) {
+            if let Err(error) = crate::updater::check_for_updates() {
+                error!("Failed to check for updates: {error}");
+            }
         }
 
         #[unsafe(method(openGitHubURL:))]
@@ -374,6 +390,26 @@ fn update_reload_item(menu: &NSMenu) {
     }
 }
 
+/// Refresh the Sparkle action immediately before the status menu opens.
+fn update_check_for_updates_item(menu: &NSMenu) {
+    let (title, enabled) = crate::updater::menu_item_presentation();
+    let title = NSString::from_str(title);
+
+    let num_items = menu.numberOfItems();
+    for index in 0..num_items {
+        if let Some(item) = menu.itemAtIndex(index) {
+            if item.tag() == CHECK_FOR_UPDATES_TAG {
+                item.setTitle(&title);
+                item.setEnabled(enabled);
+                return;
+            }
+            if let Some(submenu) = item.submenu() {
+                update_check_for_updates_item(&submenu);
+            }
+        }
+    }
+}
+
 /// Update scheduled task items in the menu to show current "Last run" times
 fn update_scheduled_task_items(menu: &NSMenu) {
     use something_bg_core::scheduler::format_last_run;
@@ -551,6 +587,17 @@ pub fn create_menu(
     );
     set_menu_item_target(&about_item, handler as &AnyObject);
     menu.addItem(&about_item);
+
+    let update_item = create_menu_item_with_action(
+        ns_string!("Check for Updates..."),
+        Some(sel!(checkForUpdates:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_target(&update_item, handler as &AnyObject);
+    update_item.setTag(CHECK_FOR_UPDATES_TAG);
+    update_item.setEnabled(crate::updater::can_check_for_updates());
+    menu.addItem(&update_item);
 
     // Add Separator before Quit
     let separator1 = NSMenuItem::separatorItem(mtm);

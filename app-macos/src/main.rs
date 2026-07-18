@@ -15,6 +15,7 @@ mod app;
 mod logger;
 mod menu;
 mod paths;
+mod updater;
 mod wake_detector;
 
 use app::App;
@@ -78,8 +79,17 @@ fn main() {
             Some(&notification_name),
             None,
         );
+        let launch_notification_name =
+            objc2_foundation::NSString::from_str("NSApplicationDidFinishLaunchingNotification");
+        notification_center.addObserver_selector_name_object(
+            &handler,
+            objc2::sel!(applicationDidFinishLaunching:),
+            Some(&launch_notification_name),
+            None,
+        );
     }
 
-    // 8. Run the main application loop
+    // 8. Run the main application loop. Sparkle starts from the application
+    // launch notification after AppKit has finished launching.
     app.run();
 }
