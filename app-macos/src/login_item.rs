@@ -13,18 +13,19 @@ unsafe extern "C" {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Off,
+    NotFound,
     Enabled,
     RequiresApproval,
 }
 
 impl Status {
     pub fn requested(self) -> bool {
-        self != Self::Off
+        matches!(self, Self::Enabled | Self::RequiresApproval)
     }
 
     pub fn menu_state(self) -> isize {
         match self {
-            Self::Off => 0,
+            Self::Off | Self::NotFound => 0,
             Self::Enabled => 1,
             Self::RequiresApproval => -1,
         }
@@ -56,11 +57,20 @@ fn service() -> Result<Retained<AnyObject>, String> {
 
 fn read_status(service: &AnyObject) -> Result<Status, String> {
     let status: isize = unsafe { msg_send![service, status] };
+    status_from_raw(status)
+}
+
+fn status_from_raw(status: isize) -> Result<Status, String> {
     match status {
         0 => Ok(Status::Off),
         1 => Ok(Status::Enabled),
         2 => Ok(Status::RequiresApproval),
-        _ => Err("macOS could not find this app's login item. Install the app in Applications and try again.".into()),
+        // A missing service is not evidence that the app is installed incorrectly.
+        // It is inactive, and must not prevent an explicit registration attempt.
+        3 => Ok(Status::NotFound),
+        other => Err(format!(
+            "macOS returned an unknown login-item status ({other})."
+        )),
     }
 }
 
@@ -70,26 +80,42 @@ pub fn status() -> Result<Status, String> {
 
 pub fn set_enabled(enabled: bool) -> Result<Status, String> {
     let service = service()?;
-    let before = read_status(&service)?;
-    // Respect revoked consent: never unregister/re-register to bypass approval.
+    apply_registration(
+        enabled,
+        || read_status(&service),
+        |enabled| {
+            let result: Result<(), Retained<NSError>> = unsafe {
+                if enabled {
+                    msg_send![&service, registerAndReturnError: _]
+                } else {
+                    msg_send![&service, unregisterAndReturnError: _]
+                }
+            };
+            result.map_err(|error| error.localizedDescription().to_string())
+        },
+    )
+}
+
+fn apply_registration(
+    enabled: bool,
+    mut read: impl FnMut() -> Result<Status, String>,
+    mut change: impl FnMut(bool) -> Result<(), String>,
+) -> Result<Status, String> {
+    let before = read()?;
+    // Missing + off is already satisfied. Enabling a missing item must reach
+    // register(), while existing approval requests must not be bypassed.
     if before.requested() == enabled {
         return Ok(before);
     }
-    let result: Result<(), Retained<NSError>> = unsafe {
-        if enabled {
-            msg_send![&service, registerAndReturnError: _]
-        } else {
-            msg_send![&service, unregisterAndReturnError: _]
+    let result = change(enabled);
+    match (result, read()) {
+        // Registration can return launch-denied while retaining the request.
+        (_, Ok(after)) if after.requested() == enabled => Ok(after),
+        // Prefer the actual registration failure over a secondary status error.
+        (Err(error), _) | (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(_)) => {
+            Err("macOS did not apply the Start at Login change. Please try again.".into())
         }
-    };
-    let after = read_status(&service)?;
-    // Registration may return launch-denied while retaining the approval request.
-    if after.requested() == enabled {
-        return Ok(after);
-    }
-    match result {
-        Err(error) => Err(error.localizedDescription().to_string()),
-        Ok(()) => Err("macOS did not apply the Start at Login change. Please try again.".into()),
     }
 }
 
@@ -113,6 +139,86 @@ pub fn open_settings() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_item_with_default_off_does_not_register_or_raise_an_error() {
+        let missing = status_from_raw(3).unwrap();
+        assert_eq!(missing.menu_state(), 0);
+        assert!(!missing.requested());
+        let result = apply_registration(
+            false,
+            || Ok(missing),
+            |_| panic!("Off must not change registration"),
+        );
+        assert_eq!(result, Ok(Status::NotFound));
+    }
+
+    #[test]
+    fn missing_item_can_be_registered_from_the_menu_or_config() {
+        let state = std::cell::Cell::new(Status::NotFound);
+        let calls = std::cell::Cell::new(0);
+        let result = apply_registration(
+            true,
+            || Ok(state.get()),
+            |enabled| {
+                assert!(enabled);
+                calls.set(calls.get() + 1);
+                state.set(Status::Enabled);
+                Ok(())
+            },
+        );
+        assert_eq!(result, Ok(Status::Enabled));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn registration_failure_preserves_macos_error_even_when_status_read_fails() {
+        let reads = std::cell::Cell::new(0);
+        let result = apply_registration(
+            true,
+            || {
+                reads.set(reads.get() + 1);
+                if reads.get() == 1 {
+                    Ok(Status::NotFound)
+                } else {
+                    Err("status failed".into())
+                }
+            },
+            |_| Err("The code signature is invalid.".into()),
+        );
+        assert_eq!(result.unwrap_err(), "The code signature is invalid.");
+    }
+
+    #[test]
+    fn unsuccessful_registration_is_not_reported_as_enabled() {
+        let result = apply_registration(true, || Ok(Status::NotFound), |_| Ok(()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn enabling_does_not_bypass_existing_user_approval() {
+        let result = apply_registration(
+            true,
+            || Ok(Status::RequiresApproval),
+            |_| panic!("Must not re-register to bypass consent"),
+        );
+        assert_eq!(result, Ok(Status::RequiresApproval));
+    }
+
+    #[test]
+    fn disabling_removes_an_existing_registration() {
+        let state = std::cell::Cell::new(Status::Enabled);
+        let result = apply_registration(
+            false,
+            || Ok(state.get()),
+            |enabled| {
+                assert!(!enabled);
+                state.set(Status::Off);
+                Ok(())
+            },
+        );
+        assert_eq!(result, Ok(Status::Off));
+    }
 
     #[test]
     fn approval_is_requested_but_never_shown_as_enabled() {

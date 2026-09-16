@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.13.1
+
+**Release Date:** September 16, 2026
+
+- Fix a false Start at Login error after installation when automatic startup is off.
+- Keep Start at Login available when macOS has no existing login item, and show actual registration errors if enabling fails.
+
 ## v1.13.0
 
 **Release Date:** September 16, 2026
