@@ -27,6 +27,7 @@ const ICON_ACTIVE: &str = "●"; // Filled circle for active
 const DISCONNECT_ALL_TAG: isize = 9999;
 const RELOAD_CONFIG_TAG: isize = 10_000;
 const CHECK_FOR_UPDATES_TAG: isize = 10_001;
+const CONNECTION_TAG: isize = 10_002;
 
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
@@ -43,6 +44,7 @@ define_class!(
     unsafe impl NSMenuDelegate for MenuHandler {
         #[unsafe(method(menuNeedsUpdate:))]
         fn menu_needs_update(&self, menu: &NSMenu) {
+            refresh_connection_items(menu);
             update_scheduled_task_items(menu);
             update_reload_item(menu);
             update_check_for_updates_item(menu);
@@ -50,6 +52,33 @@ define_class!(
     }
 
     impl MenuHandler {
+        #[unsafe(method(pollConnections:))]
+        fn poll_connections(&self, _timer: &AnyObject) {
+            if let Some(app) = GLOBAL_APP.get() {
+                if let Some(status) = app.get_status_item() {
+                    let mtm = self.mtm();
+                    update_status_item_title(&status, app.tunnel_manager.has_active_tunnels(), mtm);
+                    if let Some(menu) = status.menu(mtm) { refresh_connection_items(&menu); }
+                }
+                for (key, failure) in app.tunnel_manager.take_failures() {
+                    let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or(key);
+                    crate::app::send_tunnel_failure(&name, &failure);
+                }
+            }
+        }
+
+        #[unsafe(method(showConnectionError:))]
+        fn show_connection_error(&self, item: &NSMenuItem) {
+            if let Some(key) = item.representedObject() {
+                let key = extract_nsstring_from_object(&key);
+                if let Some(app) = GLOBAL_APP.get()
+                    && let Some(failure) = app.tunnel_manager.failure(&key) {
+                    let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or(key);
+                    crate::connection_details::show(&name, &failure.command_line, &failure.logs());
+                }
+            }
+        }
+
         #[unsafe(method(toggleTunnel:))]
         fn toggle_tunnel(&self, item: &NSMenuItem) {
             toggle_tunnel_handler(item);
@@ -289,36 +318,25 @@ fn reload_config_handler(handler: &MenuHandler) {
 
 /// Handle toggling a tunnel menu item by delegating into the shared App state.
 fn toggle_tunnel_handler(item: &NSMenuItem) {
-    // Identify if the menu item is currently active or not.
-    let state = item.state();
-    let new_state = if state == 1 { 0 } else { 1 }; // NSOnState = 1, NSOffState = 0
-    item.setState(new_state);
-
     // Extract the command key from the menu item
     if let Some(command_id) = item.representedObject() {
         let command_key = extract_nsstring_from_object(&command_id);
 
         if let Some(app) = GLOBAL_APP.get() {
-            let enable = new_state == 1;
+            let enable = !app
+                .tunnel_manager
+                .active_tunnels
+                .lock()
+                .unwrap()
+                .contains(&command_key);
             let any_active = app.tunnel_manager.toggle(&command_key, enable);
 
-            // Update the status item icon if we have a reference to it
-            if let Some(status_item) = app.get_status_item() {
-                if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
-                    update_status_item_title(&status_item, any_active, mtm);
-
-                    // Enable/disable "Disconnect All" menu item based on active state
-                    if let Some(menu) = status_item.menu(mtm) {
-                        let num_items = menu.numberOfItems();
-                        for i in 0..num_items {
-                            if let Some(menu_item) = menu.itemAtIndex(i) {
-                                if menu_item.tag() == DISCONNECT_ALL_TAG {
-                                    menu_item.setEnabled(any_active);
-                                    break;
-                                }
-                            }
-                        }
-                    }
+            if let Some(status_item) = app.get_status_item()
+                && let Some(mtm) = MainThreadMarker::new()
+            {
+                update_status_item_title(&status_item, any_active, mtm);
+                if let Some(menu) = status_item.menu(mtm) {
+                    refresh_connection_items(&menu);
                 }
             }
         }
@@ -347,28 +365,115 @@ fn disconnect_all_handler() {
             app.tunnel_manager.toggle(key, false);
         }
 
-        // Update UI
-        if let Some(status_item) = app.get_status_item() {
-            if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
-                update_status_item_title(&status_item, false, mtm);
-
-                if let Some(menu) = status_item.menu(mtm) {
-                    let num_items = menu.numberOfItems();
-                    for i in 0..num_items {
-                        if let Some(item) = menu.itemAtIndex(i) {
-                            // Uncheck all tunnel items (have represented object, no submenu)
-                            if item.representedObject().is_some() && item.submenu().is_none() {
-                                item.setState(0);
-                            }
-                            // Disable "Disconnect All" item
-                            if item.tag() == DISCONNECT_ALL_TAG {
-                                item.setEnabled(false);
-                            }
-                        }
-                    }
-                }
+        if let Some(status_item) = app.get_status_item()
+            && let Some(mtm) = MainThreadMarker::new()
+        {
+            update_status_item_title(&status_item, app.tunnel_manager.has_active_tunnels(), mtm);
+            if let Some(menu) = status_item.menu(mtm) {
+                refresh_connection_items(&menu);
             }
         }
+    }
+}
+
+fn connection_presentation(name: &str, active: bool, faulty: bool) -> (String, isize) {
+    (
+        name.to_owned(),
+        if faulty {
+            -1
+        } else if active {
+            1
+        } else {
+            0
+        },
+    )
+}
+
+/// A native submenu takes over the parent item's click, so keep retry available
+/// alongside the diagnostics action while the connection is faulty.
+fn update_connection_submenu(item: &NSMenuItem, command_id: &str, faulty: bool) {
+    if !faulty {
+        if item.submenu().is_some() {
+            item.setSubmenu(None);
+        }
+        return;
+    }
+    if item.submenu().is_some() {
+        return;
+    }
+    let Some(target) = item.target() else {
+        return;
+    };
+    let mtm = item.mtm();
+    let submenu = NSMenu::new(mtm);
+    submenu.setAutoenablesItems(false);
+    for (title, action) in [
+        ("Show Error…", sel!(showConnectionError:)),
+        ("Retry", sel!(toggleTunnel:)),
+    ] {
+        let action_item = create_menu_item_with_action(
+            &NSString::from_str(title),
+            Some(action),
+            ns_string!(""),
+            mtm,
+        );
+        set_menu_item_represented_object(&action_item, &NSString::from_str(command_id));
+        set_menu_item_target(&action_item, &target);
+        submenu.addItem(&action_item);
+    }
+    item.setSubmenu(Some(&submenu));
+}
+
+fn refresh_connection_items(menu: &NSMenu) {
+    let Some(app) = GLOBAL_APP.get() else {
+        return;
+    };
+    for index in 0..menu.numberOfItems() {
+        let Some(item) = menu.itemAtIndex(index) else {
+            continue;
+        };
+        if item.tag() == DISCONNECT_ALL_TAG {
+            item.setEnabled(app.tunnel_manager.has_active_tunnels());
+        }
+        if let Some(key) = item.representedObject() {
+            let key = extract_nsstring_from_object(&key);
+            let faulty = app.tunnel_manager.has_failure(&key);
+            if item.tag() == CONNECTION_TAG {
+                let name = app
+                    .tunnel_names
+                    .lock()
+                    .unwrap()
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(key.clone());
+                let active = app
+                    .tunnel_manager
+                    .active_tunnels
+                    .lock()
+                    .unwrap()
+                    .contains(&key);
+                let (title, state) = connection_presentation(&name, active, faulty);
+                item.setTitle(&NSString::from_str(&title));
+                item.setState(state);
+                update_connection_submenu(&item, &key, faulty);
+                item.setToolTip(Some(&NSString::from_str(if faulty {
+                    "Open the submenu to view the error or retry the connection."
+                } else {
+                    "Click to connect or disconnect."
+                })));
+            }
+        }
+    }
+}
+
+/// Poll on the AppKit thread, including while a menu is open.
+pub fn start_connection_monitor(handler: &MenuHandler) -> Retained<objc2_foundation::NSTimer> {
+    unsafe {
+        let timer = objc2_foundation::NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
+            0.5, handler, sel!(pollConnections:), None, true);
+        objc2_foundation::NSRunLoop::mainRunLoop()
+            .addTimer_forMode(&timer, objc2_foundation::NSRunLoopCommonModes);
+        timer
     }
 }
 
@@ -649,6 +754,7 @@ fn create_menu_item(
     let item =
         create_menu_item_with_action(&title_ns, Some(sel!(toggleTunnel:)), ns_string!(""), mtm);
 
+    item.setTag(CONNECTION_TAG);
     let command_id_ns = NSString::from_str(command_id);
     set_menu_item_represented_object(&item, &command_id_ns);
     set_menu_item_target(&item, handler as &AnyObject);
@@ -659,7 +765,19 @@ fn create_menu_item(
             .unwrap()
             .contains(command_id)
     });
-    item.setState(if active { 1 } else { 0 });
+    let faulty = GLOBAL_APP
+        .get()
+        .is_some_and(|app| app.tunnel_manager.has_failure(command_id));
+    let (title, state) = connection_presentation(&tunnel_config.name, active, faulty);
+    item.setTitle(&NSString::from_str(&title));
+    item.setState(state);
+    update_connection_submenu(&item, command_id, faulty);
+    if let Some(image) = load_icon("sf:exclamationmark.triangle.fill") {
+        // AppKit retains the image used for the native mixed-state indicator.
+        unsafe {
+            item.setMixedStateImage(Some(&image));
+        }
+    }
 
     item
 }
@@ -819,5 +937,26 @@ pub fn update_status_item_title(status_item: &NSStatusItem, active: bool, mtm: M
         let title_str = if active { ICON_ACTIVE } else { ICON_INACTIVE };
         let title = NSString::from_str(title_str);
         button.setTitle(&title);
+    }
+}
+
+#[cfg(test)]
+mod connection_tests {
+    use super::connection_presentation;
+
+    #[test]
+    fn native_connection_state_tracks_fault_retry_and_off() {
+        assert_eq!(
+            connection_presentation("Database", false, true),
+            ("Database".into(), -1)
+        );
+        assert_eq!(
+            connection_presentation("Database", true, false),
+            ("Database".into(), 1)
+        );
+        assert_eq!(
+            connection_presentation("Database", false, false),
+            ("Database".into(), 0)
+        );
     }
 }

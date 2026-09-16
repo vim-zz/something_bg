@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 
 mod about;
 mod app;
+mod connection_details;
 mod logger;
 mod menu;
 mod paths;
@@ -59,6 +60,7 @@ fn main() {
 
     // 5b. Set up native notification center (shows app icon, handles "Show" clicks)
     app::setup_notification_center(mtm);
+    let _connection_monitor = menu::start_connection_monitor(&handler);
 
     // 6. Setup wake observer to detect when Mac wakes from sleep
     wake_detector::set_wake_callback(|| {

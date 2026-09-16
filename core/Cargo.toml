@@ -11,3 +11,6 @@ croner = "3.0"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5.0"
 humantime_fmt = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

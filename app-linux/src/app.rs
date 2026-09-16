@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use log::{error, info, warn};
 use something_bg_core::command::CommandRunner;
@@ -40,13 +40,7 @@ impl AppState {
         let path = config.get_path();
 
         // Initialize the tunnel manager
-        let tunnel_manager = TunnelManager {
-            commands_config: Arc::new(Mutex::new(commands)),
-            active_tunnels: Arc::new(Mutex::new(Default::default())),
-            active_commands: Arc::new(Mutex::new(Default::default())),
-            generations: Arc::new(Mutex::new(Default::default())),
-            env_path: Arc::new(Mutex::new(config.get_path())),
-        };
+        let tunnel_manager = TunnelManager::new(commands, config.get_path());
 
         // Initialize the command runner
         let mut command_runner = CommandRunner::new(config.get_path());

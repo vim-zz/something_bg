@@ -120,6 +120,14 @@ cargo build -p something_bg_windows --release
 .\target\release\something_bg_windows.exe
 ```
 
+## Connection errors on macOS
+
+If a connection command cannot start or exits with an error, its native menu item shows a warning status icon while keeping its original name and the app sends a compact notification. Open **View Details** from the notification or **Show Error…** in the connection’s submenu to inspect the command and logs. The window supports text selection, **Copy Command**, and **Copy Logs**. Choose **Retry** from the failed connection’s submenu to try again.
+
+The copied command includes the configured PATH and shell-quoted arguments. Logs retain the most recent 64 KiB of stdout and stderr, with a notice when earlier output was truncated. The menu retains the latest failure until retry or app exit; notifications retain the matching failure snapshot.
+
+Detection uses launch failures and nonzero exit status. A process that is still running is not probed for connection health, and successful service-start commands such as `colima start` remain active.
+
 ## Configuration
 
 Configuration is stored in `~/.config/something_bg/config.toml` (created on first run).

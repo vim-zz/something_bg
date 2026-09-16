@@ -1,5 +1,13 @@
 # Release Notes - Something in the Background
 
+## v1.12.0
+
+**Release Date:** September 16, 2026
+
+- Detect failed connections and show a native warning icon with a compact notification.
+- View and copy the connection command and error logs in a native details window.
+- Access **Show Error…** and **Retry** from the failed connection’s submenu, keeping its name unchanged.
+
 ## v1.11.2
 
 **Release Date:** July 18, 2026

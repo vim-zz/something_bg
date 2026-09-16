@@ -9,14 +9,14 @@ use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{ClassType, MainThreadOnly, define_class};
 use objc2_app_kit::NSStatusItem;
 use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use something_bg_core::command::{CommandRunner, format_duration as format_elapsed};
 use something_bg_core::config::{Config, ConfigMonitor};
 use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
-use something_bg_core::tunnel::TunnelManager;
+use something_bg_core::tunnel::{TunnelFailure, TunnelManager};
 
 use crate::paths::MacPaths;
 
@@ -29,6 +29,7 @@ unsafe impl Sync for StatusItemWrapper {}
 /// must be shared across modules (e.g., commands, active tunnels).
 pub struct App {
     pub tunnel_manager: TunnelManager,
+    pub tunnel_names: Mutex<HashMap<String, String>>,
     pub command_runner: Mutex<CommandRunner>,
     pub task_scheduler: TaskScheduler,
     pub paths: Arc<MacPaths>,
@@ -58,13 +59,7 @@ impl App {
         let path = config.get_path();
 
         // Initialize the tunnel manager
-        let tunnel_manager = TunnelManager {
-            commands_config: Arc::new(Mutex::new(commands)),
-            active_tunnels: Arc::new(Mutex::new(HashSet::new())),
-            active_commands: Arc::new(Mutex::new(Default::default())),
-            generations: Arc::new(Mutex::new(Default::default())),
-            env_path: Arc::new(Mutex::new(config.get_path())),
-        };
+        let tunnel_manager = TunnelManager::new(commands, config.get_path());
 
         // Initialize the command runner
         let mut command_runner = CommandRunner::new(config.get_path());
@@ -155,6 +150,13 @@ impl App {
 
         let app = Self {
             tunnel_manager,
+            tunnel_names: Mutex::new(
+                config
+                    .tunnels
+                    .iter()
+                    .map(|(key, tunnel)| (key.clone(), tunnel.name.clone()))
+                    .collect(),
+            ),
             command_runner: Mutex::new(command_runner),
             task_scheduler,
             paths: paths.clone(),
@@ -216,6 +218,11 @@ impl App {
             .lock()
             .unwrap()
             .reconfigure(path, &config.commands);
+        *self.tunnel_names.lock().unwrap() = config
+            .tunnels
+            .iter()
+            .map(|(key, tunnel)| (key.clone(), tunnel.name.clone()))
+            .collect();
         self.config_monitor.mark_applied(contents);
 
         info!("Reloaded configuration successfully");
@@ -234,7 +241,20 @@ define_class!(
 
     impl NotifDelegate {
         #[unsafe(method(userNotificationCenter:didActivateNotification:))]
-        fn did_activate(&self, _center: &AnyObject, _notification: &AnyObject) {
+        fn did_activate(&self, _center: &AnyObject, notification: &AnyObject) {
+            // The notification carries its own snapshot so older notifications
+            // still show the matching command and logs after a retry or reload.
+            let details: Option<Retained<objc2_foundation::NSDictionary<NSString, NSString>>> =
+                unsafe { objc2::msg_send![notification, userInfo] };
+            if let Some(details) = details
+                && let (Some(name), Some(command), Some(logs)) = (
+                    details.objectForKey(objc2_foundation::ns_string!("tunnelName")),
+                    details.objectForKey(objc2_foundation::ns_string!("command")),
+                    details.objectForKey(objc2_foundation::ns_string!("logs")),
+                ) {
+                crate::connection_details::show(&name.to_string(), &command.to_string(), &logs.to_string());
+                return;
+            }
             if let Some(app) = crate::GLOBAL_APP.get()
                 && let Some(path) = app
                     .command_runner
@@ -288,6 +308,33 @@ pub fn setup_notification_center(mtm: MainThreadMarker) {
 /// Send a native macOS notification using NSUserNotificationCenter.
 /// Shows the app's icon and supports the "Show" action button.
 pub fn send_notification(title: &str, body: &str) {
+    deliver_notification(title, body, None);
+}
+
+pub fn send_tunnel_failure(name: &str, failure: &TunnelFailure) {
+    let name_ns = NSString::from_str(name);
+    let command_ns = NSString::from_str(&failure.command_line);
+    let logs_ns = NSString::from_str(&failure.logs());
+    let details = objc2_foundation::NSDictionary::from_slices(
+        &[
+            objc2_foundation::ns_string!("tunnelName"),
+            objc2_foundation::ns_string!("command"),
+            objc2_foundation::ns_string!("logs"),
+        ],
+        &[&*name_ns, &*command_ns, &*logs_ns],
+    );
+    deliver_notification(
+        &format!("{name} — Faulty"),
+        "Connection failed. View Details to inspect and copy the command and error logs.",
+        Some(&details),
+    );
+}
+
+fn deliver_notification(
+    title: &str,
+    body: &str,
+    details: Option<&objc2_foundation::NSDictionary<NSString, NSString>>,
+) {
     unsafe {
         let Some(center_class) = AnyClass::get(c"NSUserNotificationCenter") else {
             warn!("NSUserNotificationCenter class not available");
@@ -308,7 +355,15 @@ pub fn send_notification(title: &str, body: &str) {
 
         let title_ns = NSString::from_str(title);
         let body_ns = NSString::from_str(body);
-        let action_ns = NSString::from_str("View History");
+        let action_ns = NSString::from_str(if details.is_some() {
+            "View Details"
+        } else {
+            "View History"
+        });
+        if let Some(details) = details {
+            let _: () = objc2::msg_send![&notif, setUserInfo: details];
+        }
+        let _: () = objc2::msg_send![&notif, setHasActionButton: true];
 
         let _: () = objc2::msg_send![&notif, setTitle: &*title_ns];
         let _: () = objc2::msg_send![&notif, setInformativeText: &*body_ns];
