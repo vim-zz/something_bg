@@ -1,5 +1,13 @@
 # Release Notes - Something in the Background
 
+## v1.13.0
+
+**Release Date:** September 16, 2026
+
+- Add **Settings → Start at Login** on macOS, with a saved `settings.start_at_login` preference.
+- Show native login-item status and provide access to System Settings when approval is required.
+- Show meaningful release notes directly in the update window.
+
 ## v1.12.0
 
 **Release Date:** September 16, 2026

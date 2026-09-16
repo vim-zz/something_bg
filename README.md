@@ -132,10 +132,24 @@ Detection uses launch failures and nonzero exit status. A process that is still 
 
 Configuration is stored in `~/.config/something_bg/config.toml` (created on first run).
 
+### Start at login (macOS)
+
+Choose **Settings → Start at Login** to launch the app automatically when you log in. It is off by default and uses macOS’s native Login Items service (macOS 13 or later, from the installed app bundle). The toggle also saves this preference in `config.toml`:
+
+```toml
+[settings]
+start_at_login = true
+```
+
+Manual config changes take effect through **Settings → Reload** or at the next app launch. The menu reflects macOS’s actual registration status. If approval is required, use **Open Login Items Settings…** to allow the app in System Settings; a mixed checkmark means it is awaiting approval, not enabled. Turning the toggle off removes the login registration. Config comments and unrelated settings are preserved. Linux and Windows retain this setting but do not act on it.
+
 ### Example
 
 ```toml
 version = 2
+
+[settings]
+start_at_login = false
 
 [environment]
 path = "/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin"

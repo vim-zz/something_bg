@@ -77,8 +77,32 @@ For Git commands that need identity, SSH, or keychain credentials, set
 - Prepend a new `## vX.Y.Z` section to `RELEASE_NOTES.md`, include the release
   date and a short category heading if useful, and copy the approved bullets
   verbatim. Keep the new section to exactly 2–5 release-note bullets.
-- Treat the approved release text as the source of truth for both the changelog
-  and the GitHub Release body. Do not replace it with GitHub-generated notes.
+- Treat the approved release text as the source of truth for the changelog,
+  GitHub Release body, and release notes shown in Sparkle's update window.
+  Preserve the approved wording and order across all three; only formatting
+  may differ. Do not replace the changes with GitHub-generated notes or generic
+  signing/notarization text.
+
+### In-app release notes
+
+Sparkle displays the release item's notes from `appcast.xml`, not the GitHub
+Release body. Updating GitHub notes after publication does not update the app's
+update window.
+
+- Inspect `scripts/prepare-sparkle-appcast.sh` before tagging. It must extract
+  the approved bullets from the exact `## vX.Y.Z` section in `RELEASE_NOTES.md`
+  and embed them in that release item's `<description>`. If it still emits the
+  hardcoded "This update is signed and notarized" placeholder, fix the generator
+  as part of release preparation; a link to GitHub alone is not sufficient.
+- Render the bullets as an HTML list inside CDATA, with appropriate escaping
+  and Markdown formatting converted to HTML. Preserve the visible wording;
+  do not show literal Markdown markers, raw HTML, unrelated version history,
+  or technical packaging boilerplate. See Sparkle's
+  [embedded release notes documentation](https://sparkle-project.org/documentation/publishing/#embedded-release-notes).
+- Fail release preparation if the matching section or approved bullets are
+  missing. Validate the generated notes against the approved list before
+  signing. Finalize the notes before signing the appcast; later edits require
+  regenerating and re-signing the feed, never patching signed XML in place.
 
 ### 3. Validate and review
 
@@ -101,6 +125,10 @@ cross-platform code. Before committing:
   new release-notes heading all agree.
 - Count the bullets in the new release section and confirm they are exactly the
   approved 2–5 bullets; remove any generated or unapproved text.
+- Validate the appcast generator's output for the selected release: its rendered
+  list must contain those same approved bullets. When changing the generator,
+  check missing-version handling and HTML/XML escaping as well as a normal
+  release. Do not treat correct GitHub notes as proof of correct in-app notes.
 
 Stage only intentional release files, normally `Cargo.toml`, `Cargo.lock` when
 Cargo changed it, and `RELEASE_NOTES.md`. Commit with a short imperative
@@ -173,6 +201,14 @@ After the workflow completes, verify the GitHub Release for the exact tag:
 - The macOS artifact is signed, notarized, stapled, and Sparkle metadata points
   to the matching immutable release tag; rely on the protected workflow checks
   and report any missing or mismatched asset.
+- Download the published `appcast.xml` and check the release item's description
+  against the approved bullets after decoding its HTML. Also verify the feed
+  served at the app's configured `SUFeedURL` points to this release and contains
+  the same notes. Checking the version, signature, and archive URL alone is
+  insufficient: reject placeholder-only or stale release text.
+- Verify the notes as users see them in Sparkle's update window when UI access
+  is available. If UI verification is unavailable, report that limitation and
+  verify the downloaded, decoded notes instead; do not claim visual verification.
 
 Use the CLI for the final inspection and, if needed, the exact approved body:
 
@@ -187,6 +223,31 @@ The body file must contain only the approved release heading and its exact 2–5
 bullets. Re-read the release after editing and verify that no generated notes
 or extra bullets remain.
 
+### 7. Verify restart when installing an update locally
+
+When the requested release work includes installing or updating the local app,
+finish with the new version running. Publishing a release alone does not require
+changing the user's local installation.
+
+- Record the running instance's PID, executable/bundle path, and version before
+  updating. Distinguish the installed app from development copies; the displayed
+  app name and bundle identifier alone may match multiple builds.
+- For an in-app update, let Sparkle finish its installation and relaunch flow.
+  Do not manually launch a competing copy while replacement is in progress or
+  treat download completion as installation completion.
+- For a local bundle replacement, build successfully first, gracefully quit the
+  exact instance being updated so tunnel and scheduler cleanup can run, and wait
+  for its PID to exit before replacing the bundle. Launch the updated bundle
+  explicitly with the user's real HOME and existing configuration afterward.
+- Verify the old PID is gone, a new process runs from the intended bundle, and
+  the running app's About window reports the expected version. Reading only the
+  bundle's on-disk `Info.plist` does not prove that the running process updated.
+  Check that the update did not leave an extra stale instance running.
+- If replacement, relaunch, or running-version verification fails, report that
+  exact limitation; do not claim the local app is updated based on a successful
+  copy or published release alone.
+
 Report the commit, tag, workflow result, release URL, exact approved bullets,
-and asset verification. Do not claim success while the release remains a draft
-or any expected asset/check is missing.
+asset verification, and in-app release-note verification. When a local update
+was requested, also report restart and running-version verification. Do not claim
+success while the release remains a draft or any expected asset/check is missing.

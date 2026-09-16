@@ -66,6 +66,10 @@ if [[ "$RELEASE_TAG" != "v$short_version" ]]; then
     exit 1
 fi
 
+# Validate and render approved notes before invoking any signing operation.
+release_notes="$(python3 "$ROOT_DIR/scripts/render-release-notes.py" \
+    "${SOMETHING_BG_RELEASE_NOTES_FILE:-$ROOT_DIR/RELEASE_NOTES.md}" "$short_version")"
+
 signature_output="$(sign_file "$UPDATE_ZIP")"
 archive_signature="$(printf '%s\n' "$signature_output" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' | head -n 1)"
 archive_length="$(stat -f%z "$UPDATE_ZIP")"
@@ -102,7 +106,7 @@ cat > "$APPCAST_OUTPUT" <<EOF
       <title>Something in the Background $(xml_escape "$short_version")</title>
       <pubDate>$pub_date</pubDate>
       <link>$(xml_escape "$release_url")</link>
-      <description>This update is signed and notarized. See the linked GitHub Release for full release notes.</description>
+      <description><![CDATA[$release_notes]]></description>
       <sparkle:version>$(xml_escape "$bundle_version")</sparkle:version>
       <sparkle:shortVersionString>$(xml_escape "$short_version")</sparkle:shortVersionString>
       <enclosure

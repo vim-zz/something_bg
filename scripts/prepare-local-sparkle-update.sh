@@ -58,6 +58,14 @@ printf 'Something in the Background local Sparkle update %s\n' "$UPDATE_SHORT_VE
 
 /usr/bin/ditto -c -k --keepParent "$update_app" "$archive_path"
 
+cat > "$FIXTURE_DIR/RELEASE_NOTES.md" <<EOF
+## v$UPDATE_SHORT_VERSION
+
+- Test installation and relaunch using the current checkout.
+- Include a marker file to verify that the update replaced the seed bundle.
+EOF
+
+SOMETHING_BG_RELEASE_NOTES_FILE="$FIXTURE_DIR/RELEASE_NOTES.md" \
 SOMETHING_BG_RELEASE_TAG="v$UPDATE_SHORT_VERSION" \
 SOMETHING_BG_SPARKLE_SIGN_UPDATE="$SIGN_UPDATE" \
 SOMETHING_BG_SPARKLE_PRIVATE_KEY="${SOMETHING_BG_SPARKLE_PRIVATE_KEY:-}" \

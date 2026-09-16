@@ -14,6 +14,7 @@ mod about;
 mod app;
 mod connection_details;
 mod logger;
+mod login_item;
 mod menu;
 mod paths;
 mod updater;

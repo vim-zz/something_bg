@@ -28,6 +28,8 @@ const DISCONNECT_ALL_TAG: isize = 9999;
 const RELOAD_CONFIG_TAG: isize = 10_000;
 const CHECK_FOR_UPDATES_TAG: isize = 10_001;
 const CONNECTION_TAG: isize = 10_002;
+const START_AT_LOGIN_TAG: isize = 10_003;
+const LOGIN_SETTINGS_TAG: isize = 10_004;
 
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
@@ -48,6 +50,7 @@ define_class!(
             update_scheduled_task_items(menu);
             update_reload_item(menu);
             update_check_for_updates_item(menu);
+            update_login_items(menu);
         }
     }
 
@@ -91,8 +94,36 @@ define_class!(
 
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn application_did_finish_launching(&self, _notification: &NSObject) {
+            if let Some(app) = GLOBAL_APP.get()
+                && let Err(error) = app.apply_login_preference() {
+                warn!("Could not apply Start at Login: {error}");
+                crate::app::send_login_notification(&error);
+            }
             if let Err(error) = crate::updater::start_automatic_checks() {
                 warn!("Updater unavailable: {error}");
+            }
+        }
+
+        #[unsafe(method(toggleStartAtLogin:))]
+        fn toggle_start_at_login(&self, _item: &NSMenuItem) {
+            if let Some(app) = GLOBAL_APP.get() {
+                if let Err(error) = app.toggle_start_at_login() {
+                    show_settings_error("Could Not Change Start at Login", &error);
+                } else if crate::login_item::status() == Ok(crate::login_item::Status::RequiresApproval) {
+                    show_settings_error("Start at Login Needs Approval", "Allow Something in the Background in System Settings > General > Login Items. Choose Open Login Items Settings… from this app’s Settings menu to open it.");
+                }
+                if let Some(status) = app.get_status_item()
+                    && let Some(menu) = status.menu(self.mtm()) {
+                    update_login_items(&menu);
+                    update_reload_item(&menu);
+                }
+            }
+        }
+
+        #[unsafe(method(openLoginSettings:))]
+        fn open_login_settings(&self, _item: &NSMenuItem) {
+            if let Err(error) = crate::login_item::open_settings() {
+                show_settings_error("Could Not Open Login Items", &error);
             }
         }
 
@@ -312,7 +343,7 @@ fn reload_config_handler(handler: &MenuHandler) {
                 );
             }
         }
-        Err(e) => error!("Failed to reload configuration: {e}"),
+        Err(e) => show_settings_error("Could Not Reload Configuration", &e),
     }
 }
 
@@ -495,6 +526,49 @@ fn update_reload_item(menu: &NSMenu) {
     }
 }
 
+fn show_settings_error(title: &str, message: &str) {
+    error!("{title}: {message}");
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let alert = objc2_app_kit::NSAlert::new(mtm);
+    alert.setMessageText(&NSString::from_str(title));
+    alert.setInformativeText(&NSString::from_str(message));
+    alert.addButtonWithTitle(ns_string!("OK"));
+    alert.runModal();
+}
+
+/// Reflect actual OS status, including consent revoked in System Settings.
+fn update_login_items(menu: &NSMenu) {
+    let status = crate::login_item::status();
+    for index in 0..menu.numberOfItems() {
+        if let Some(item) = menu.itemAtIndex(index) {
+            match item.tag() {
+                START_AT_LOGIN_TAG => {
+                    let pending = status == Ok(crate::login_item::Status::RequiresApproval);
+                    item.setTitle(if pending {
+                        ns_string!("Start at Login (Approval Required)")
+                    } else {
+                        ns_string!("Start at Login")
+                    });
+                    item.setEnabled(status.is_ok());
+                    item.setState(status.as_ref().map_or(0, |state| state.menu_state()));
+                    let tooltip = status.as_ref().err().map(|error| NSString::from_str(error));
+                    item.setToolTip(tooltip.as_deref());
+                }
+                LOGIN_SETTINGS_TAG => {
+                    item.setHidden(status != Ok(crate::login_item::Status::RequiresApproval));
+                }
+                _ => {
+                    if let Some(submenu) = item.submenu() {
+                        update_login_items(&submenu);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Refresh the Sparkle action immediately before the status menu opens.
 fn update_check_for_updates_item(menu: &NSMenu) {
     let (title, enabled) = crate::updater::menu_item_presentation();
@@ -643,6 +717,28 @@ pub fn create_menu(
         create_menu_item_with_action(ns_string!("Settings"), None, ns_string!(""), mtm);
     let settings_menu = NSMenu::new(mtm);
     settings_menu.setAutoenablesItems(false);
+    settings_menu.setDelegate(Some(delegate));
+
+    let login_item = create_menu_item_with_action(
+        ns_string!("Start at Login"),
+        Some(sel!(toggleStartAtLogin:)),
+        ns_string!(""),
+        mtm,
+    );
+    login_item.setTag(START_AT_LOGIN_TAG);
+    set_menu_item_target(&login_item, handler as &AnyObject);
+    settings_menu.addItem(&login_item);
+    let login_settings = create_menu_item_with_action(
+        ns_string!("Open Login Items Settings…"),
+        Some(sel!(openLoginSettings:)),
+        ns_string!(""),
+        mtm,
+    );
+    login_settings.setTag(LOGIN_SETTINGS_TAG);
+    set_menu_item_target(&login_settings, handler as &AnyObject);
+    settings_menu.addItem(&login_settings);
+    settings_menu.addItem(&NSMenuItem::separatorItem(mtm));
+    update_login_items(&settings_menu);
 
     let reload_item = create_menu_item_with_action(
         ns_string!("Reload"),

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use something_bg_core::command::{CommandRunner, format_duration as format_elapsed};
-use something_bg_core::config::{Config, ConfigMonitor};
+use something_bg_core::config::{Config, ConfigMonitor, LoginSettingUpdate};
 use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
 use something_bg_core::tunnel::{TunnelFailure, TunnelManager};
@@ -35,6 +35,7 @@ pub struct App {
     pub paths: Arc<MacPaths>,
     pub status_item: Option<Arc<Mutex<StatusItemWrapper>>>,
     config_monitor: ConfigMonitor,
+    start_at_login: Mutex<Option<bool>>,
 }
 
 impl App {
@@ -161,6 +162,11 @@ impl App {
             task_scheduler,
             paths: paths.clone(),
             status_item: None,
+            start_at_login: Mutex::new(
+                config_contents
+                    .as_ref()
+                    .map(|_| config.settings.start_at_login),
+            ),
             config_monitor: ConfigMonitor::new(paths.config_path(), config_contents),
         };
 
@@ -205,11 +211,47 @@ impl App {
         })
     }
 
+    pub fn apply_login_preference(&self) -> Result<(), String> {
+        // A malformed config must not change the user's existing OS preference.
+        if let Some(enabled) = *self.start_at_login.lock().unwrap() {
+            let status = crate::login_item::apply_preference(enabled)?;
+            if status == crate::login_item::Status::RequiresApproval {
+                send_login_notification(
+                    "Allow Something in the Background in System Settings > General > Login Items. You can open it from the app’s Settings menu.",
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn toggle_start_at_login(&self) -> Result<(), String> {
+        let previous = crate::login_item::status()?;
+        let enabled = !previous.requested();
+        let update = LoginSettingUpdate::prepare(self.paths.as_ref(), enabled)
+            .map_err(|error| error.to_string())?;
+        crate::login_item::set_enabled(enabled)?;
+        if let Err(error) = update.save() {
+            // Restore the OS preference if the config could not be saved.
+            return match crate::login_item::set_enabled(previous.requested()) {
+                Ok(_) => Err(format!("Could not save Start at Login: {error}")),
+                Err(rollback) => Err(format!(
+                    "Could not save Start at Login: {error}. Restoring the previous login setting also failed: {rollback}"
+                )),
+            };
+        }
+        *self.start_at_login.lock().unwrap() = Some(enabled);
+        self.config_monitor
+            .mark_setting_applied(&update.original, update.updated);
+        Ok(())
+    }
+
     pub fn reload_config(&self) -> Result<Config, String> {
         let (config, contents) =
             Config::load_with_snapshot(self.paths.as_ref()).map_err(|e| e.to_string())?;
         let path = config.get_path();
 
+        // Fail before replacing runtime commands/menu data if macOS rejects the preference.
+        crate::login_item::apply_preference(config.settings.start_at_login)?;
         self.task_scheduler
             .reconfigure(path.clone(), &config.schedules)?;
         self.tunnel_manager
@@ -223,6 +265,7 @@ impl App {
             .iter()
             .map(|(key, tunnel)| (key.clone(), tunnel.name.clone()))
             .collect();
+        *self.start_at_login.lock().unwrap() = Some(config.settings.start_at_login);
         self.config_monitor.mark_applied(contents);
 
         info!("Reloaded configuration successfully");
@@ -246,6 +289,12 @@ define_class!(
             // still show the matching command and logs after a retry or reload.
             let details: Option<Retained<objc2_foundation::NSDictionary<NSString, NSString>>> =
                 unsafe { objc2::msg_send![notification, userInfo] };
+            if details.as_ref().is_some_and(|info| info.objectForKey(objc2_foundation::ns_string!("loginItems")).is_some()) {
+                if let Err(error) = crate::login_item::open_settings() {
+                    warn!("Could not open Login Items settings: {error}");
+                }
+                return;
+            }
             if let Some(details) = details
                 && let (Some(name), Some(command), Some(logs)) = (
                     details.objectForKey(objc2_foundation::ns_string!("tunnelName")),
@@ -308,7 +357,15 @@ pub fn setup_notification_center(mtm: MainThreadMarker) {
 /// Send a native macOS notification using NSUserNotificationCenter.
 /// Shows the app's icon and supports the "Show" action button.
 pub fn send_notification(title: &str, body: &str) {
-    deliver_notification(title, body, None);
+    deliver_notification(title, body, None, "View History");
+}
+
+pub fn send_login_notification(body: &str) {
+    let details = objc2_foundation::NSDictionary::from_slices(
+        &[objc2_foundation::ns_string!("loginItems")],
+        &[objc2_foundation::ns_string!("true")],
+    );
+    deliver_notification("Start at Login", body, Some(&details), "Open Settings");
 }
 
 pub fn send_tunnel_failure(name: &str, failure: &TunnelFailure) {
@@ -327,6 +384,7 @@ pub fn send_tunnel_failure(name: &str, failure: &TunnelFailure) {
         &format!("{name} — Faulty"),
         "Connection failed. View Details to inspect and copy the command and error logs.",
         Some(&details),
+        "View Details",
     );
 }
 
@@ -334,6 +392,7 @@ fn deliver_notification(
     title: &str,
     body: &str,
     details: Option<&objc2_foundation::NSDictionary<NSString, NSString>>,
+    action: &str,
 ) {
     unsafe {
         let Some(center_class) = AnyClass::get(c"NSUserNotificationCenter") else {
@@ -355,11 +414,7 @@ fn deliver_notification(
 
         let title_ns = NSString::from_str(title);
         let body_ns = NSString::from_str(body);
-        let action_ns = NSString::from_str(if details.is_some() {
-            "View Details"
-        } else {
-            "View History"
-        });
+        let action_ns = NSString::from_str(action);
         if let Some(details) = details {
             let _: () = objc2::msg_send![&notif, setUserInfo: details];
         }

@@ -37,8 +37,80 @@ impl ConfigMonitor {
         Ok(*applied != current)
     }
 
+    pub fn mark_setting_applied(&self, previous: &[u8], contents: Vec<u8>) {
+        let mut applied = self.applied_contents.lock().unwrap();
+        if applied.as_deref() == Some(previous) {
+            *applied = Some(contents);
+        }
+    }
+
     pub fn mark_applied(&self, contents: Vec<u8>) {
         *self.applied_contents.lock().unwrap() = Some(contents);
+    }
+}
+
+/// A targeted config edit, prepared before changing an OS preference.
+/// Keeps comments, unknown keys, and unapplied manual edits intact.
+pub struct LoginSettingUpdate {
+    path: PathBuf,
+    pub original: Vec<u8>,
+    pub updated: Vec<u8>,
+}
+
+impl LoginSettingUpdate {
+    pub fn prepare(
+        paths: &dyn AppPaths,
+        enabled: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let path = fs::canonicalize(paths.config_path())?;
+        let original = fs::read(&path)?;
+        let content = std::str::from_utf8(&original)?;
+        let value: toml::Value = content.parse()?;
+        if declared_version(&value)? != CURRENT_CONFIG_VERSION {
+            return Err("Reload the configuration before changing Start at Login.".into());
+        }
+        // Validate the whole config without rewriting or applying it.
+        Config::from_v2_document(value.try_into()?)?;
+        let mut document: toml_edit::Document = content.parse()?;
+        let item = &mut document["settings"]["start_at_login"];
+        let mut value = toml_edit::Value::from(enabled);
+        if let Some(previous) = item.as_value() {
+            *value.decor_mut() = previous.decor().clone();
+        }
+        *item = toml_edit::Item::Value(value);
+        Ok(Self {
+            path,
+            original,
+            updated: document.to_string().into_bytes(),
+        })
+    }
+
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write;
+        // Do not clobber an editor's intervening changes.
+        if fs::read(&self.path)? != self.original {
+            return Err(
+                "Configuration changed while saving Start at Login. Please try again.".into(),
+            );
+        }
+        let temp_path = self
+            .path
+            .with_extension(format!("toml.{}.tmp", std::process::id()));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)?;
+        let result = (|| -> std::io::Result<()> {
+            file.set_permissions(fs::metadata(&self.path)?.permissions())?;
+            file.write_all(&self.updated)?;
+            file.sync_all()?;
+            fs::rename(&temp_path, &self.path)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temp_path);
+        }
+        result?;
+        Ok(())
     }
 }
 
@@ -86,6 +158,7 @@ pub struct CommandConfig {
 
 #[derive(Debug)]
 pub struct Config {
+    pub settings: Settings,
     pub sections: Vec<ConfigSection>,
     pub tunnels: Vec<(String, TunnelConfig)>,
     pub commands: Vec<(String, CommandConfig)>,
@@ -95,6 +168,13 @@ pub struct Config {
     pub path: Option<String>,
     scripts_section: Option<String>,
     discovered_command_ids: HashSet<String>,
+}
+
+/// App preferences. Platform-specific settings are retained on every platform.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Settings {
+    #[serde(default)]
+    pub start_at_login: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -115,6 +195,8 @@ struct ScriptsDocument {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct V2Document {
     version: u64,
+    #[serde(default)]
+    settings: Settings,
     #[serde(default)]
     environment: EnvironmentDocument,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -317,6 +399,7 @@ impl Config {
         let scripts_output = document.scripts.as_ref().and_then(|s| s.output.clone());
         let scripts_section = document.scripts.as_ref().and_then(|s| s.section.clone());
         let mut config = Config {
+            settings: document.settings,
             sections: Vec::new(),
             tunnels: Vec::new(),
             commands: Vec::new(),
@@ -511,6 +594,7 @@ impl Config {
 
         V2Document {
             version: CURRENT_CONFIG_VERSION,
+            settings: self.settings.clone(),
             environment: EnvironmentDocument {
                 path: self.path.clone(),
             },
@@ -528,6 +612,7 @@ impl Default for Config {
     fn default() -> Self {
         Self::from_v2_document(V2Document {
             version: CURRENT_CONFIG_VERSION,
+            settings: Settings::default(),
             environment: EnvironmentDocument::default(),
             scripts: None,
             sections: vec![
@@ -705,6 +790,12 @@ fn migrate_v1_to_v2(value: toml::Value) -> Result<V2Document, Box<dyn std::error
 
     Ok(V2Document {
         version: CURRENT_CONFIG_VERSION,
+        settings: table
+            .get("settings")
+            .cloned()
+            .map(toml::Value::try_into)
+            .transpose()?
+            .unwrap_or_default(),
         environment: EnvironmentDocument { path },
         scripts,
         sections,
@@ -1011,6 +1102,105 @@ mod tests {
         monitor.mark_applied(fs::read(&path).unwrap());
         assert!(!monitor.has_changed().unwrap());
 
+        fs::remove_dir_all(paths.directory).unwrap();
+    }
+
+    #[test]
+    fn login_preference_defaults_off_and_round_trips() {
+        let paths = test_paths("login-default");
+        fs::write(paths.config_path(), "version = 2\n").unwrap();
+        let mut config = Config::load_with(&paths).unwrap();
+        assert!(!config.settings.start_at_login);
+        config.settings.start_at_login = true;
+        config.save_with(&paths).unwrap();
+        assert!(Config::load_with(&paths).unwrap().settings.start_at_login);
+        fs::remove_dir_all(paths.directory).unwrap();
+    }
+
+    #[test]
+    fn login_toggle_preserves_comments_unknown_keys_and_manual_edits() {
+        let paths = test_paths("login-comments");
+        let original = "# My config\nversion = 2\n\n[settings]\nstart_at_login = false # preference\ncustom = 'keep me'\n\n[environment]\npath = '/custom/bin'\n";
+        fs::write(paths.config_path(), original).unwrap();
+        let monitor = ConfigMonitor::new(paths.config_path(), Some(original.as_bytes().to_vec()));
+        let update = LoginSettingUpdate::prepare(&paths, true).unwrap();
+        update.save().unwrap();
+        assert_eq!(
+            fs::read_to_string(paths.config_path()).unwrap(),
+            original.replace("false", "true")
+        );
+        monitor.mark_setting_applied(&update.original, update.updated);
+        assert!(!monitor.has_changed().unwrap());
+
+        let manually_edited = fs::read_to_string(paths.config_path())
+            .unwrap()
+            .replace("/custom/bin", "/other/bin");
+        fs::write(paths.config_path(), &manually_edited).unwrap();
+        let update = LoginSettingUpdate::prepare(&paths, false).unwrap();
+        update.save().unwrap();
+        monitor.mark_setting_applied(&update.original, update.updated);
+        assert!(
+            monitor.has_changed().unwrap(),
+            "Manual edits must still need Reload"
+        );
+        assert_eq!(
+            fs::read_to_string(paths.config_path()).unwrap(),
+            manually_edited.replace("true", "false")
+        );
+        fs::remove_dir_all(paths.directory).unwrap();
+    }
+
+    #[test]
+    fn login_toggle_inserts_missing_settings_and_handles_inline_table() {
+        let paths = test_paths("login-insert");
+        for original in [
+            "version = 2\n",
+            "version = 2\nsettings = { start_at_login = false, custom = 'keep' }\n",
+        ] {
+            fs::write(paths.config_path(), original).unwrap();
+            LoginSettingUpdate::prepare(&paths, true)
+                .unwrap()
+                .save()
+                .unwrap();
+            assert!(Config::load_with(&paths).unwrap().settings.start_at_login);
+        }
+        fs::remove_dir_all(paths.directory).unwrap();
+    }
+
+    #[test]
+    fn login_toggle_rejects_invalid_or_changed_config_without_overwriting() {
+        let paths = test_paths("login-invalid");
+        for original in [
+            "invalid!",
+            "version = 99",
+            "version = 2\nsettings = false",
+            "version = 2\n[settings]\nstart_at_login = 'yes'",
+        ] {
+            fs::write(paths.config_path(), original).unwrap();
+            assert!(LoginSettingUpdate::prepare(&paths, true).is_err());
+            assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), original);
+        }
+        fs::write(paths.config_path(), "version = 2\n").unwrap();
+        let update = LoginSettingUpdate::prepare(&paths, true).unwrap();
+        let changed = "version = 2\n# edited while saving\n";
+        fs::write(paths.config_path(), changed).unwrap();
+        assert!(update.save().is_err());
+        assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), changed);
+        fs::remove_dir_all(paths.directory).unwrap();
+    }
+
+    #[test]
+    fn failed_login_save_leaves_original_config_intact() {
+        let paths = test_paths("login-save-failure");
+        let original = "version = 2\n";
+        fs::write(paths.config_path(), original).unwrap();
+        let update = LoginSettingUpdate::prepare(&paths, true).unwrap();
+        let temp_path = paths
+            .config_path()
+            .with_extension(format!("toml.{}.tmp", std::process::id()));
+        fs::create_dir(&temp_path).unwrap();
+        assert!(update.save().is_err());
+        assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), original);
         fs::remove_dir_all(paths.directory).unwrap();
     }
 

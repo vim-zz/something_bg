@@ -34,6 +34,9 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Test release notes generation
+        run: python -m unittest discover -s scripts -p "test_*.py"
+
       - name: cargo fmt
         run: cargo fmt --all -- --check
 
