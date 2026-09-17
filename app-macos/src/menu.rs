@@ -77,7 +77,7 @@ define_class!(
                 if let Some(app) = GLOBAL_APP.get()
                     && let Some(failure) = app.tunnel_manager.failure(&key) {
                     let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or(key);
-                    crate::connection_details::show(&name, &failure.command_line, &failure.logs());
+                    crate::connection_details::show(&name, &failure.command_line, &failure.env_path, &failure.logs());
                 }
             }
         }

@@ -1,5 +1,13 @@
 # Release Notes - Something in the Background
 
+## v1.13.2
+
+**Release Date:** September 17, 2026
+
+- Show the configured PATH used by failed connections in error details.
+- Improve diagnostic readability with dark panels, green PATH text, and clearer spacing.
+- Embed copy icons in text areas with a temporary checkmark and “Copied” confirmation.
+
 ## v1.13.1
 
 **Release Date:** September 16, 2026

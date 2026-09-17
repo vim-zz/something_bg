@@ -286,7 +286,7 @@ define_class!(
         #[unsafe(method(userNotificationCenter:didActivateNotification:))]
         fn did_activate(&self, _center: &AnyObject, notification: &AnyObject) {
             // The notification carries its own snapshot so older notifications
-            // still show the matching command and logs after a retry or reload.
+            // still show the matching command, PATH, and logs after a retry or reload.
             let details: Option<Retained<objc2_foundation::NSDictionary<NSString, NSString>>> =
                 unsafe { objc2::msg_send![notification, userInfo] };
             if details.as_ref().is_some_and(|info| info.objectForKey(objc2_foundation::ns_string!("loginItems")).is_some()) {
@@ -301,7 +301,10 @@ define_class!(
                     details.objectForKey(objc2_foundation::ns_string!("command")),
                     details.objectForKey(objc2_foundation::ns_string!("logs")),
                 ) {
-                crate::connection_details::show(&name.to_string(), &command.to_string(), &logs.to_string());
+                let path = details.objectForKey(objc2_foundation::ns_string!("path"))
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "(not recorded for this notification)".to_owned());
+                crate::connection_details::show(&name.to_string(), &command.to_string(), &path, &logs.to_string());
                 return;
             }
             if let Some(app) = crate::GLOBAL_APP.get()
@@ -371,14 +374,16 @@ pub fn send_login_notification(body: &str) {
 pub fn send_tunnel_failure(name: &str, failure: &TunnelFailure) {
     let name_ns = NSString::from_str(name);
     let command_ns = NSString::from_str(&failure.command_line);
+    let path_ns = NSString::from_str(&failure.env_path);
     let logs_ns = NSString::from_str(&failure.logs());
     let details = objc2_foundation::NSDictionary::from_slices(
         &[
             objc2_foundation::ns_string!("tunnelName"),
             objc2_foundation::ns_string!("command"),
+            objc2_foundation::ns_string!("path"),
             objc2_foundation::ns_string!("logs"),
         ],
-        &[&*name_ns, &*command_ns, &*logs_ns],
+        &[&*name_ns, &*command_ns, &*path_ns, &*logs_ns],
     );
     deliver_notification(
         &format!("{name} — Faulty"),

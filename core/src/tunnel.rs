@@ -23,6 +23,7 @@ pub struct TunnelCommand {
 #[derive(Clone, Debug)]
 pub struct TunnelFailure {
     pub command_line: String,
+    pub env_path: String,
     pub summary: String,
     pub stdout: String,
     pub stderr: String,
@@ -353,6 +354,7 @@ impl TunnelManager {
                         generation,
                         TunnelFailure {
                             command_line: format_command_line(&command, &env_path),
+                            env_path,
                             summary,
                             stdout,
                             stderr,
@@ -513,6 +515,7 @@ mod tests {
     fn failure() -> TunnelFailure {
         TunnelFailure {
             command_line: "test".into(),
+            env_path: "/usr/bin:/bin".into(),
             summary: "exit 255".into(),
             stdout: "Switched context".into(),
             stderr: "Token has expired".into(),
@@ -648,20 +651,20 @@ mod tests {
             "/usr/bin:/bin".into(),
         );
         manager.toggle("test", true);
-        assert!(
-            wait_for_failure(&manager)
-                .summary
-                .contains("Could not start")
-        );
+        let original_failure = wait_for_failure(&manager);
+        assert!(original_failure.summary.contains("Could not start"));
+        assert_eq!(original_failure.env_path, "/usr/bin:/bin");
         let mut replacement = command();
         replacement.args = vec!["-c".into(), "echo retry >&2; exit 2".into()];
         manager.reconfigure(
             HashMap::from([("test".into(), replacement)]),
-            "/usr/bin:/bin".into(),
+            "/custom/bin:/usr/bin:/bin".into(),
         );
         manager.toggle("test", true);
         let failure = wait_for_failure(&manager);
         assert_eq!(failure.stderr, "retry\n");
+        assert_eq!(failure.env_path, "/custom/bin:/usr/bin:/bin");
+        assert_eq!(original_failure.env_path, "/usr/bin:/bin");
         assert_eq!(manager.take_failures().len(), 1);
     }
 
