@@ -1,0 +1,56 @@
+name: Daily download statistics
+
+on:
+  schedule:
+    - cron: "17 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: download-stats
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Prepare statistics branch
+        env:
+          STATS_DIR: ${{ runner.temp }}/download-stats
+        run: |
+          branch="$(git ls-remote --heads origin refs/heads/download-stats)"
+          if [[ -n "$branch" ]]; then
+            git fetch origin refs/heads/download-stats:refs/remotes/origin/download-stats
+            git worktree add --detach "$STATS_DIR" refs/remotes/origin/download-stats
+          else
+            git worktree add --detach "$STATS_DIR" HEAD
+            git -C "$STATS_DIR" switch --orphan download-stats
+          fi
+
+      - name: Capture counts and generate report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATS_DIR: ${{ runner.temp }}/download-stats
+        run: |
+          python3 scripts/capture-download-stats.py --repository "$GITHUB_REPOSITORY" --output "$STATS_DIR"
+          cat "$STATS_DIR/REPORT.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save statistics
+        env:
+          STATS_DIR: ${{ runner.temp }}/download-stats
+        run: |
+          cd "$STATS_DIR"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add snapshots daily.csv REPORT.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Capture download statistics $(date -u +%F)"
+            git push origin HEAD:refs/heads/download-stats
+          fi

@@ -308,6 +308,36 @@ Browse all symbols at [developer.apple.com/sf-symbols](https://developer.apple.c
 
 Reload the configuration from the tray menu after editing the file.
 
+## Download statistics
+
+The **Daily download statistics** GitHub Actions workflow captures release download
+counts every day at 00:17 UTC. It can also be started from **Actions → Daily download
+statistics → Run workflow** once the workflow is on the default branch.
+
+The first run creates the `download-stats` branch with:
+
+- `snapshots/YYYY-MM-DD.json`: cumulative counters by asset ID, OS, and release tag.
+- `daily.csv`: increases between snapshots, grouped by OS and app version.
+- `REPORT.md`: the latest 60 snapshot dates in a readable table, also shown in the workflow summary.
+
+View the [download report](https://github.com/vim-zz/something_bg/blob/download-stats/REPORT.md)
+after the first run. Collection uses the workflow's built-in `GITHUB_TOKEN` with
+`contents: write`; no additional secret or analytics server is needed. Repository
+rules must allow this workflow to create and update the `download-stats` branch.
+
+Only packaged macOS, Linux, and Windows assets are counted, including published
+prereleases. Architectures are combined per OS/version; appcasts, checksums, and
+unsigned build intermediates are excluded. These are download counts, including
+updates and repeat downloads, not unique users or active installations.
+
+The initial snapshot establishes a baseline, and reruns preserve the first snapshot
+of each UTC day. Observations measure the interval between runs, not exact calendar
+days. Missed days are reported as a multi-day interval; missing assets and counter
+resets are marked unknown instead of fabricating daily counts. The raw snapshots
+retain asset IDs so replacing an archive does not silently inflate download counts.
+GitHub may delay scheduled runs and disables schedules in public repositories after
+60 days without repository activity; re-enable the workflow if that happens.
+
 ## License
 
 MIT
