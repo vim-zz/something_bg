@@ -128,6 +128,8 @@ pub struct ConfigSection {
     pub title: Option<String>,
     pub icon: Option<String>,
     pub kind: SectionKind,
+    /// False renders the section flush with the one above it, with no divider.
+    pub separator: bool,
     pub item_ids: Vec<String>,
 }
 
@@ -213,6 +215,8 @@ struct SectionDocument {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
     kind: SectionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    separator: Option<bool>,
     #[serde(default)]
     items: Vec<ItemDocument>,
 }
@@ -484,6 +488,7 @@ impl Config {
                 title: section.title,
                 icon: section.icon,
                 kind: section.kind,
+                separator: section.separator.unwrap_or(true),
                 item_ids,
             });
         }
@@ -523,6 +528,7 @@ impl Config {
                 title: Some("Scripts".to_string()),
                 icon: Some("sf:terminal.fill".to_string()),
                 kind: SectionKind::Command,
+                separator: true,
                 item_ids: Vec::new(),
             });
             self.sections.len() - 1
@@ -587,6 +593,7 @@ impl Config {
                     title: section.title.clone(),
                     icon: section.icon.clone(),
                     kind: section.kind,
+                    separator: if section.separator { None } else { Some(false) },
                     items,
                 }
             })
@@ -621,6 +628,7 @@ impl Default for Config {
                     title: Some("Connections".to_string()),
                     icon: Some("sf:cylinder.fill".to_string()),
                     kind: SectionKind::Tunnel,
+                    separator: None,
                     items: vec![
                         ItemDocument {
                             id: "example-ssh".to_string(),
@@ -668,6 +676,7 @@ impl Default for Config {
                     title: Some("Services".to_string()),
                     icon: Some("sf:ferry".to_string()),
                     kind: SectionKind::Tunnel,
+                    separator: None,
                     items: vec![ItemDocument {
                         id: "colima".to_string(),
                         name: "Colima Docker".to_string(),
@@ -683,6 +692,7 @@ impl Default for Config {
                     title: Some("Scheduled Tasks".to_string()),
                     icon: Some("sf:clock.fill".to_string()),
                     kind: SectionKind::ScheduledTask,
+                    separator: None,
                     items: vec![ItemDocument {
                         id: "daily-backup".to_string(),
                         name: "Daily Backup".to_string(),
@@ -776,6 +786,7 @@ fn migrate_v1_to_v2(value: toml::Value) -> Result<V2Document, Box<dyn std::error
             title: Some("Scripts".to_string()),
             icon: Some("sf:terminal.fill".to_string()),
             kind: SectionKind::Command,
+            separator: None,
             items: Vec::new(),
         });
         ScriptsDocument {
@@ -939,6 +950,7 @@ where
                 title: Some(header.to_string()),
                 icon: item.group_icon().map(str::to_string),
                 kind,
+                separator: None,
                 items: Vec::new(),
             });
         }
@@ -949,6 +961,7 @@ where
                 title: None,
                 icon: None,
                 kind,
+                separator: None,
                 items: Vec::new(),
             });
         }
@@ -1242,6 +1255,43 @@ stop = ["pkill", "-f", "database"]
         assert_eq!(config.commands[0].0, "hello");
         assert_eq!(config.tunnels[0].0, "database");
         assert_eq!(config.get_path(), "/custom/bin");
+    }
+
+    #[test]
+    fn section_separator_defaults_on_and_round_trips_when_disabled() {
+        let document = r#"
+version = 2
+
+[[sections]]
+id = "clickhouse"
+title = "CLICKHOUSE"
+kind = "tunnel"
+
+[[sections.items]]
+id = "ch"
+name = "PROD"
+start = ["kubectl", "port-forward"]
+stop = ["pkill", "-f", "port-forward"]
+
+[[sections]]
+id = "clickhouse-web"
+kind = "command"
+separator = false
+
+[[sections.items]]
+id = "ch-web"
+name = "ClickHouse Web"
+run = ["open", "http://localhost:8124/play"]
+"#;
+        let value: toml::Value = document.parse().unwrap();
+        let config = Config::from_v2_document(value.try_into().unwrap()).unwrap();
+
+        assert!(config.sections[0].separator);
+        assert!(!config.sections[1].separator);
+
+        let rendered = toml::to_string(&config.to_v2_document()).unwrap();
+        assert!(!rendered.contains("separator = true"));
+        assert_eq!(rendered.matches("separator = false").count(), 1);
     }
 
     #[test]

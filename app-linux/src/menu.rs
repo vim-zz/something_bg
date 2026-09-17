@@ -59,7 +59,10 @@ pub fn build_menu(
         if section.item_ids.is_empty() {
             continue;
         }
-        if rendered_section && let Err(e) = menu.append(&PredefinedMenuItem::separator()) {
+        if rendered_section
+            && section.separator
+            && let Err(e) = menu.append(&PredefinedMenuItem::separator())
+        {
             debug!("failed to append section separator: {e}");
         }
         rendered_section = true;

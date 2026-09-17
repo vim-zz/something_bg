@@ -37,7 +37,7 @@
 
 ## Tunnel Configuration
 - Config file lives at `~/.config/something_bg/config.toml`; created with defaults on first run and reloaded for menu construction.
-- Each tunnel defines `name`, `command`, `args`, `kill_command`, `kill_args`, optional `separator_after`, optional `group_header`, and optional `group_icon` (SF Symbol name such as `sf:cylinder.fill`).
+- Each tunnel defines `name`, `command`, `args`, `kill_command`, `kill_args`, optional `group_header`, and optional `group_icon` (SF Symbol name such as `sf:cylinder.fill`). `separator_after` is v1-only and is consumed by the v1 to v2 migration; v2 controls dividers with the section-level `separator` key.
 - Supports any command-line tool that can be started/stopped; config uses `#[serde(default)]` on optional fields for backward compatibility.
 - Default seed tunnels: `example-ssh`, `k8s-example`, and `colima`.
 
@@ -55,7 +55,7 @@
 
 ## Menu Organization & Icon System
 - Group headers created via `create_header_item()` render disabled menu items with optional SF Symbol icons.
-- Separators use `NSMenuItem::separatorItem()` and are driven by `separator_after` in config.
+- Separators use `NSMenuItem::separatorItem()` and render before every section after the first, unless that section sets `separator = false`.
 - Icon loader understands `sf:` prefixes and falls back gracefully; PNG icons in `resources/images/` (`peacock_folded_16x16.png` inactive, `peacock_open_16x16.png` active). Falls back to Unicode (☷/☰) if images fail to load.
 
 ## Testing Guidelines

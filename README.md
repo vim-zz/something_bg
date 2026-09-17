@@ -211,10 +211,11 @@ cron = "0 6 * * *"
 ### Fields
 
 - `version` — Config schema version; the current version is `2`.
-- `sections` — Ordered menu sections. The app inserts separators between them.
+- `sections` — Ordered menu sections. The app inserts separators between them by default.
 - Section `id` — Stable identifier, unique across sections.
 - Section `title` and `icon` — Optional visible heading and SF Symbol.
 - Section `kind` — `"tunnel"`, `"command"`, or `"scheduled-task"`.
+- Section `separator` — Optional; `false` renders the section flush with the one above it, with no divider. Useful for attaching a link or command to the group it belongs to.
 - Item `id` — Stable identifier, unique within its kind.
 - Item `name` — Display name.
 - Tunnel `start` and `stop` — Executable followed by its exact argument list.
