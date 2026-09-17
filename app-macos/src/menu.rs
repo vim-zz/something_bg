@@ -668,7 +668,7 @@ pub fn create_menu(
         if section.item_ids.is_empty() {
             continue;
         }
-        if rendered_section {
+        if rendered_section && section.separator {
             menu.addItem(&NSMenuItem::separatorItem(mtm));
         }
         rendered_section = true;

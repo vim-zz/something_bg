@@ -1,5 +1,11 @@
 # Release Notes - Something in the Background
 
+## v1.14.0
+
+**Release Date:** September 17, 2026
+
+- Add an optional `separator = false` section key that renders a section flush with the one above it, so a related command can sit directly under a group without a divider.
+
 ## v1.13.2
 
 **Release Date:** September 17, 2026
