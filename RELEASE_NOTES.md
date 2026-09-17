@@ -4,7 +4,8 @@
 
 **Release Date:** September 17, 2026
 
-- Add an optional `separator = false` section key that renders a section flush with the one above it, so a related command can sit directly under a group without a divider.
+- Add `separator = false` to display related sections together without a menu divider on macOS, Linux, and Windows.
+- Preserve existing menu layouts by keeping section separators enabled by default.
 
 ## v1.13.2
 
