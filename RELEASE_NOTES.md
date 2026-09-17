@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.14.1
+
+**Release Date:** September 17, 2026
+
+- Automatically show the macOS update prompt when launch or scheduled checks find a new version.
+- Keep “Update Available” after Later or Skip, while respecting the chosen reminder behavior.
+
 ## v1.14.0
 
 **Release Date:** September 17, 2026

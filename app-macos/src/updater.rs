@@ -8,7 +8,7 @@ use objc2::{
     rc::Retained,
     runtime::{AnyClass, AnyObject},
 };
-use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol};
+use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString};
 use std::cell::RefCell;
 use std::ffi::CString;
 use std::path::PathBuf;
@@ -43,9 +43,13 @@ define_class!(
             AUTOMATIC_UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
         }
 
-        #[unsafe(method(updaterDidNotFindUpdate:error:))]
-        fn did_not_find_update(&self, _updater: &NSObject, _error: &NSObject) {
-            AUTOMATIC_UPDATE_AVAILABLE.store(false, Ordering::SeqCst);
+        #[unsafe(method(updater:didFinishLoadingAppcast:))]
+        fn did_finish_loading_appcast(&self, updater: &NSObject, appcast: &NSObject) {
+            // Scheduled results exclude skipped versions. The menu describes
+            // availability, independently of Sparkle's reminder/skip decisions.
+            if let Some(available) = appcast_has_available_update(updater, appcast) {
+                AUTOMATIC_UPDATE_AVAILABLE.store(available, Ordering::SeqCst);
+            }
         }
 
         #[unsafe(method(supportsGentleScheduledUpdateReminders))]
@@ -59,6 +63,8 @@ define_class!(
             _update: &NSObject,
             _immediate_focus: bool,
         ) -> bool {
+            // Take responsibility for focusing the prompt below. Sparkle's
+            // default scheduled UI can appear behind other apps for dockless apps.
             false
         }
 
@@ -70,7 +76,12 @@ define_class!(
             _state: &NSObject,
         ) {
             if !sparkle_will_show {
-                AUTOMATIC_UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
+                // Sparkle has already selected a non-skipped update and prepared
+                // its alert. This focuses that existing session; it does not
+                // start another check or bypass Later / Skip Version handling.
+                if let Err(error) = check_for_updates() {
+                    log::warn!("Failed to show scheduled update: {error}");
+                }
             }
         }
     }
@@ -82,7 +93,7 @@ impl UpdaterDelegate {
     }
 }
 
-/// Starts Sparkle and performs a quiet launch-time information check when
+/// Starts Sparkle and performs a launch-time background check when
 /// automatic checks are enabled in the bundle.
 pub fn start_automatic_checks() -> Result<(), String> {
     let mtm = MainThreadMarker::new()
@@ -99,7 +110,7 @@ pub fn start_automatic_checks() -> Result<(), String> {
             let updater: Retained<AnyObject> = objc2::msg_send![controller, updater];
             let automatic_checks: bool = objc2::msg_send![&updater, automaticallyChecksForUpdates];
             if automatic_checks {
-                let _: () = objc2::msg_send![&updater, checkForUpdateInformation];
+                let _: () = objc2::msg_send![&updater, checkForUpdatesInBackground];
             }
         }
         Ok(())
@@ -111,7 +122,6 @@ pub fn check_for_updates() -> Result<(), String> {
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| "Sparkle update checks must run on the main thread.".to_string())?;
     ensure_controller(mtm)?;
-    AUTOMATIC_UPDATE_AVAILABLE.store(false, Ordering::SeqCst);
 
     UPDATER_STATE.with(|state| {
         let state = state.borrow();
@@ -146,9 +156,56 @@ pub fn can_check_for_updates() -> bool {
     })
 }
 
-/// Whether a quiet information check discovered an update this session.
+/// Whether the feed contains an available update, even if dismissed or skipped.
 pub fn automatic_update_available() -> bool {
     AUTOMATIC_UPDATE_AVAILABLE.load(Ordering::SeqCst)
+}
+
+/// Use Sparkle's parsed eligibility flags and version comparator for the menu
+/// hint. Sparkle still chooses which update to offer and when to show its UI.
+/// Inspecting the loaded feed also restores the hint after restarting with a
+/// skipped version, without storing a second copy of Sparkle's preferences.
+fn appcast_has_available_update(updater: &NSObject, appcast: &NSObject) -> Option<bool> {
+    let comparator_class = AnyClass::get(c"SUStandardVersionComparator")?;
+    unsafe {
+        let comparator: Retained<AnyObject> = objc2::msg_send![comparator_class, defaultComparator];
+        let bundle: Retained<AnyObject> = objc2::msg_send![updater, hostBundle];
+        let installed_version: Option<Retained<NSString>> = objc2::msg_send![
+            &bundle, objectForInfoDictionaryKey: &*NSString::from_str("CFBundleVersion")
+        ];
+        let installed_version = installed_version?;
+        let items: Retained<AnyObject> = objc2::msg_send![appcast, items];
+        let count: usize = objc2::msg_send![&items, count];
+        for index in 0..count {
+            let item: Retained<AnyObject> = objc2::msg_send![&items, objectAtIndex: index];
+            let macos: bool = objc2::msg_send![&item, isMacOsUpdate];
+            let delta: bool = objc2::msg_send![&item, isDeltaUpdate];
+            let channel: Option<Retained<NSString>> = objc2::msg_send![&item, channel];
+            let minimum_update: bool = objc2::msg_send![&item, minimumUpdateVersionIsOK];
+            let minimum_os: bool = objc2::msg_send![&item, minimumOperatingSystemVersionIsOK];
+            let maximum_os: bool = objc2::msg_send![&item, maximumOperatingSystemVersionIsOK];
+            let hardware: bool = objc2::msg_send![&item, arm64HardwareRequirementIsOK];
+            // This app subscribes only to Sparkle's default (stable) channel.
+            if !macos
+                || delta
+                || channel.is_some()
+                || !minimum_update
+                || !minimum_os
+                || !maximum_os
+                || !hardware
+            {
+                continue;
+            }
+            let version: Retained<NSString> = objc2::msg_send![&item, versionString];
+            let comparison: isize = objc2::msg_send![
+                &comparator, compareVersion: &*installed_version, toVersion: &*version
+            ];
+            if comparison < 0 {
+                return Some(true);
+            }
+        }
+    }
+    Some(false)
 }
 
 /// Derives the status-menu presentation without duplicating updater state in

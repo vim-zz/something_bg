@@ -25,7 +25,7 @@ On an Apple Silicon Mac, download `something_bg-macos-arm64.zip` from the [GitHu
 
 Starting with v1.10.1, GitHub release builds are signed with a Developer ID certificate and notarized by Apple before publication.
 
-Starting with v1.11.0, the macOS app uses Sparkle for secure in-app updates. Open the status menu and choose **Check for Updates...** to run Sparkle's standard interactive update flow. The app also checks quietly at launch and once per hour; when it discovers a newer version, the menu action changes to **Update Available...** without interrupting you. The first v1.11.0 installation is manual because older versions do not contain the updater.
+Starting with v1.11.0, the macOS app uses Sparkle for secure in-app updates. Open the status menu and choose **Check for Updates...** to run Sparkle's standard interactive update flow. The app also checks at launch and once per hour. Starting with v1.14.1, finding a newer version automatically opens Sparkle's update prompt with Install, Later, and Skip Version choices. The menu keeps **Update Available...** after either choice: Later allows another automatic reminder, while Skip This Version suppresses reminders for that version. You can still open the update manually from the menu. Automatic checks stay silent when no update is available or a check fails. The first v1.11.0 installation is manual because older versions do not contain the updater.
 
 The packaged macOS release currently targets Apple Silicon (`arm64`). Intel Mac users can build the app from source on an Intel Mac.
 

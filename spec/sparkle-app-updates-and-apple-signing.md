@@ -2,6 +2,8 @@
 
 ## Status
 
+> **v1.14.1 behavior change (September 17, 2026):** The quiet-discovery requirements below describe the original v1.11.0 design and are superseded. Launch checks now use `checkForUpdatesInBackground`, and launch/scheduled discoveries automatically focus Sparkle's standard Install / Later / Skip Version prompt. The menu continues to show **Update Available...** after Later or Skip, including subsequent checks and restarts. Later permits another scheduled prompt; Skip suppresses automatic prompts for that version while preserving manual access. No-update results and background failures remain silent; Sparkle still owns skipped versions and reminder scheduling.
+
 - Phase: Specification
 - Scope: macOS app runtime, bundle packaging, and GitHub release workflow
 - Target bootstrap release: `v1.11.0`
