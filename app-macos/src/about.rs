@@ -3,14 +3,15 @@
 // Handles the About window display and related functionality.
 
 use log::{error, info};
-use objc2::{ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject, sel};
+use objc2::{
+    AnyThread, ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject, sel,
+};
 use objc2_app_kit::{
     NSBackingStoreType, NSButton, NSImage, NSImageScaling, NSImageView, NSTextField, NSWindow,
     NSWindowStyleMask,
 };
 use objc2_foundation::{
-    MainThreadMarker, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL,
-    ns_string,
+    MainThreadMarker, NSData, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL,
 };
 use std::cell::RefCell;
 
@@ -154,18 +155,16 @@ fn setup_window_content(window: &NSWindow, url_helper: &URLButtonHelper, mtm: Ma
     add_github_button(&content_view, url_helper, mtm);
 }
 
-/// Adds the app icon (SF Symbol circle) to the window
+/// Adds the same icon used by the application bundle to the window.
 fn add_app_icon(content_view: &objc2_app_kit::NSView, mtm: MainThreadMarker) {
     let image_view = NSImageView::initWithFrame(
         mtm.alloc(),
         NSRect::new(NSPoint::new(100.0, 180.0), NSSize::new(100.0, 100.0)),
     );
 
-    if let Some(circle_image) =
-        NSImage::imageWithSystemSymbolName_accessibilityDescription(ns_string!("circle"), None)
-    {
-        circle_image.setSize(NSSize::new(80.0, 80.0));
-        image_view.setImage(Some(&circle_image));
+    let data = NSData::with_bytes(include_bytes!("../../resources/AppIcon.icns"));
+    if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+        image_view.setImage(Some(&image));
     }
     image_view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
     content_view.addSubview(&image_view);

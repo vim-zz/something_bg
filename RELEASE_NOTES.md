@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.15.1
+
+**Release Date:** September 18, 2026
+
+- The app icon in Finder and Applications now shows a solid circle over a striped background.
+- The About window now displays the matching app icon.
+
 ## v1.15.0
 
 **Release Date:** September 18, 2026

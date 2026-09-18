@@ -6,7 +6,7 @@ edition.workspace = true
 # Mac App Bundle configuration for the `cargo bundle` command
 [package.metadata.bundle]
 copyright = "Copyright (c) 2025 Ofer Affias"
-icon = ["../resources/circle.icns"]
+icon = ["../resources/AppIcon.icns"]
 identifier = "com.vim-zz.something-bg"
 name = "Something in the Background"
 resources = ["../resources/*.png", "../resources/images/*.png"]
