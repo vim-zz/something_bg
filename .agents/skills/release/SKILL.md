@@ -8,6 +8,23 @@ description: Prepare and publish a versioned Something in the Background release
 Run this workflow from the repository root. This project publishes releases from
 `.github/workflows/ci.yml` when an annotated `v*` tag is pushed.
 
+## Write user-facing version updates
+
+Treat the release text as the app's “What's new” update for everyday users,
+including the copy shown in the updater and on the release page. Use familiar
+product language; this is not a developer changelog or a record of the work.
+Describe what is new for the user: observable changes, new capabilities, or
+problems they will no longer encounter. Explain the result, not the design
+principles, implementation instructions, development process, or internal
+technical choices used to achieve it. Use descriptive statements about the
+product's changed behavior, not instructions telling users what to do. Prefer
+“The menu bar tooltip now displays whether any connections are active” over
+“Hover over the menu bar icon to check connection status” or “Make connection
+status clear and accessible.” Each bullet must identify a concrete, verified
+change; omit generic quality claims and do not invent benefits or pad the list
+to meet the bullet count. Mention an interaction only when needed to explain
+the changed behavior, and phrase it descriptively rather than as a tutorial.
+
 ## Mandatory release-note approval gate
 
 On every release request, perform only read-only inspection first. Before any

@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.15.0
+
+**Release Date:** September 18, 2026
+
+- A refreshed menu bar icon shows a striped background when idle and a solid circle when background processes are active.
+- The menu bar tooltip and Disconnect All now include the number of active background processes.
+
 ## v1.14.1
 
 **Release Date:** September 17, 2026

@@ -6,11 +6,11 @@
 
 use log::{error, warn};
 use objc2::{
-    ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject,
+    AnyThread, ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject,
     runtime::ProtocolObject, sel,
 };
 use objc2_app_kit::{NSImage, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar, NSStatusItem};
-use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, ns_string};
+use objc2_foundation::{MainThreadMarker, NSData, NSObject, NSObjectProtocol, NSString, ns_string};
 
 use crate::GLOBAL_APP;
 use crate::paths::MacPaths;
@@ -22,6 +22,26 @@ use something_bg_core::platform::AppPaths;
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
 const ICON_ACTIVE: &str = "●"; // Filled circle for active
+
+thread_local! {
+    // AppKit images stay on the menu's main thread and are decoded only once.
+    static STATUS_IMAGES: (Option<Retained<NSImage>>, Option<Retained<NSImage>>) = (
+        load_status_image(include_bytes!("../../resources/images/menubar-idle.pdf"), "No active background processes"),
+        load_status_image(include_bytes!("../../resources/images/menubar-active.pdf"), "Active background processes"),
+    );
+}
+
+fn load_status_image(bytes: &[u8], description: &str) -> Option<Retained<NSImage>> {
+    let image = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(bytes));
+    if let Some(image) = &image {
+        image.setSize(objc2_foundation::NSSize::new(18.0, 18.0));
+        image.setTemplate(true);
+        image.setAccessibilityDescription(Some(&NSString::from_str(description)));
+    } else {
+        warn!("Could not decode menu bar icon: {description}");
+    }
+    image
+}
 
 // Tag to identify the "Disconnect All" menu item
 const DISCONNECT_ALL_TAG: isize = 9999;
@@ -60,7 +80,7 @@ define_class!(
             if let Some(app) = GLOBAL_APP.get() {
                 if let Some(status) = app.get_status_item() {
                     let mtm = self.mtm();
-                    update_status_item_title(&status, app.tunnel_manager.has_active_tunnels(), mtm);
+                    update_status_item(&status, mtm);
                     if let Some(menu) = status.menu(mtm) { refresh_connection_items(&menu); }
                 }
                 for (key, failure) in app.tunnel_manager.take_failures() {
@@ -336,11 +356,7 @@ fn reload_config_handler(handler: &MenuHandler) {
             };
             if let Some(status_item) = app.get_status_item() {
                 status_item.setMenu(Some(&create_menu(handler, &config, mtm)));
-                update_status_item_title(
-                    &status_item,
-                    app.tunnel_manager.has_active_tunnels(),
-                    mtm,
-                );
+                update_status_item(&status_item, mtm);
             }
         }
         Err(e) => show_settings_error("Could Not Reload Configuration", &e),
@@ -360,12 +376,12 @@ fn toggle_tunnel_handler(item: &NSMenuItem) {
                 .lock()
                 .unwrap()
                 .contains(&command_key);
-            let any_active = app.tunnel_manager.toggle(&command_key, enable);
+            app.tunnel_manager.toggle(&command_key, enable);
 
             if let Some(status_item) = app.get_status_item()
                 && let Some(mtm) = MainThreadMarker::new()
             {
-                update_status_item_title(&status_item, any_active, mtm);
+                update_status_item(&status_item, mtm);
                 if let Some(menu) = status_item.menu(mtm) {
                     refresh_connection_items(&menu);
                 }
@@ -399,7 +415,7 @@ fn disconnect_all_handler() {
         if let Some(status_item) = app.get_status_item()
             && let Some(mtm) = MainThreadMarker::new()
         {
-            update_status_item_title(&status_item, app.tunnel_manager.has_active_tunnels(), mtm);
+            update_status_item(&status_item, mtm);
             if let Some(menu) = status_item.menu(mtm) {
                 refresh_connection_items(&menu);
             }
@@ -459,12 +475,13 @@ fn refresh_connection_items(menu: &NSMenu) {
     let Some(app) = GLOBAL_APP.get() else {
         return;
     };
+    let active_count = active_background_count();
     for index in 0..menu.numberOfItems() {
         let Some(item) = menu.itemAtIndex(index) else {
             continue;
         };
         if item.tag() == DISCONNECT_ALL_TAG {
-            item.setEnabled(app.tunnel_manager.has_active_tunnels());
+            update_disconnect_all_item(&item, active_count);
         }
         if let Some(key) = item.representedObject() {
             let key = extract_nsstring_from_object(&key);
@@ -772,11 +789,7 @@ pub fn create_menu(
     );
     set_menu_item_target(&disconnect_all_item, handler as &AnyObject);
     disconnect_all_item.setTag(DISCONNECT_ALL_TAG);
-    disconnect_all_item.setEnabled(
-        GLOBAL_APP
-            .get()
-            .is_some_and(|app| app.tunnel_manager.has_active_tunnels()),
-    );
+    update_disconnect_all_item(&disconnect_all_item, active_background_count());
     menu.addItem(&disconnect_all_item);
 
     let update_item = create_menu_item_with_action(
@@ -1019,20 +1032,54 @@ pub fn create_status_item(
     let status_bar = NSStatusBar::systemStatusBar();
     let status_item = status_bar.statusItemWithLength(-1.0);
 
-    if let Some(button) = status_item.button(mtm) {
-        let title = NSString::from_str(ICON_INACTIVE);
-        button.setTitle(&title);
-    }
+    update_status_item(&status_item, mtm);
 
     status_item.setMenu(Some(&create_menu(handler, config, mtm)));
     status_item
 }
 
-pub fn update_status_item_title(status_item: &NSStatusItem, active: bool, mtm: MainThreadMarker) {
+/// Count managed background processes, including services started by a launcher
+/// that has already exited. This matches the processes Disconnect All stops.
+fn active_background_count() -> usize {
+    GLOBAL_APP.get().map_or(0, |app| {
+        app.tunnel_manager.active_tunnels.lock().unwrap().len()
+    })
+}
+
+fn update_disconnect_all_item(item: &NSMenuItem, active_count: usize) {
+    let title = if active_count == 0 {
+        "Disconnect All".to_owned()
+    } else {
+        format!("Disconnect All ({active_count})")
+    };
+    item.setTitle(&NSString::from_str(&title));
+    item.setEnabled(active_count > 0);
+}
+
+pub fn update_status_item(status_item: &NSStatusItem, mtm: MainThreadMarker) {
+    let active_count = active_background_count();
+    let active = active_count > 0;
     if let Some(button) = status_item.button(mtm) {
-        let title_str = if active { ICON_ACTIVE } else { ICON_INACTIVE };
-        let title = NSString::from_str(title_str);
-        button.setTitle(&title);
+        STATUS_IMAGES.with(|(idle_image, active_image)| {
+            let image = if active { active_image } else { idle_image };
+            button.setImage(image.as_deref());
+            let title = if image.is_some() {
+                ""
+            } else if active {
+                ICON_ACTIVE
+            } else {
+                ICON_INACTIVE
+            };
+            button.setTitle(&NSString::from_str(title));
+        });
+        let status = if active {
+            format!("Active background processes ({active_count})")
+        } else {
+            "No active background processes".to_owned()
+        };
+        button.setToolTip(Some(&NSString::from_str(&format!(
+            "Something in the Background — {status}"
+        ))));
     }
 }
 
