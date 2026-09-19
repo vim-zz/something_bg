@@ -320,8 +320,7 @@ The first run creates the `download-stats` branch with:
 - `snapshots/YYYY-MM-DD.json`: cumulative counters by asset ID, OS, and release tag.
 - `daily.csv`: increases between snapshots, grouped by OS and app version.
 - `REPORT.md`: daily downloads trend charts by OS and then by the latest five versions,
-  followed by the latest 60 snapshot dates in a readable table. All also appear in
-  the workflow summary.
+  with a link to the full CSV data. The same report appears in the workflow summary.
 - `daily-downloads.svg`: the chart embedded using native GitHub Markdown image support,
   covering the latest 60 calendar days and combining all releases per OS. Unknown
   counts and multi-day intervals appear as gaps instead of zeros.

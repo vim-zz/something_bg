@@ -4,7 +4,6 @@
 import argparse
 import csv
 from datetime import date, datetime, timedelta, timezone
-import html
 import json
 from pathlib import Path
 import re
@@ -259,22 +258,12 @@ def render_reports(output):
         f"Latest snapshot: {snapshots[-1]['captured_at']} (UTC).", "",
         "Counts cover downloads between snapshots, not unique users or exact calendar days. "
         "The first snapshot is a baseline; no earlier download history is available.", "",
-        "Blank downloads mean an unknown interval (baseline, missing/replaced asset, or counter reset). "
+        "In the CSV, blank downloads mean an unknown interval (baseline, missing/replaced asset, or counter reset). "
         "A multi_day row covers a gap; its downloads cannot be assigned to individual days. "
         "Totals are current counters for assets still available, including downloads before tracking began.", "",
         "All observations and exact UTC interval boundaries are in [daily.csv](daily.csv); "
-        "raw asset counters are in [snapshots/](snapshots/). "
-        "This table shows the latest 60 snapshot dates, newest first.", "",
-        "| Snapshot date (UTC) | Version | OS | Downloads since previous snapshot | Total | Status |",
-        "| --- | --- | --- | ---: | ---: | --- |",
+        "raw asset counters are in [snapshots/](snapshots/).", "",
     ]
-    dates = sorted({row["date"] for row in rows})[-60:]
-    for row in sorted(rows, key=lambda row: row["date"], reverse=True):
-        if row["date"] not in dates:
-            continue
-        values = [row[key] for key in ["date", "version", "os", "downloads", "total", "status"]]
-        safe = [html.escape(str(value)).replace("|", "&#124;").replace("\n", " ").replace("\r", " ") for value in values]
-        report.append("| " + " | ".join(safe) + " |")
     (output / "REPORT.md").write_text("\n".join(report) + "\n", encoding="utf-8")
 
 
