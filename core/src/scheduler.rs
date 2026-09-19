@@ -10,12 +10,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::command::CommandReporter;
 use crate::config::ScheduledTaskConfig;
 use crate::platform::AppPaths;
 
@@ -206,35 +206,20 @@ impl ScheduledTask {
         }
     }
 
-    /// Execute the scheduled task
+    /// Start a scheduled task and monitor its completion in the background.
     pub fn execute(&mut self, path: &str) -> Result<(), String> {
+        self.execute_reported(path, &CommandReporter::default())
+    }
+
+    fn execute_reported(&mut self, path: &str, reporter: &CommandReporter) -> Result<(), String> {
         info!(
-            "Executing scheduled task '{}': {} {:?}",
+            "Starting scheduled task '{}': {} {:?}",
             self.name, self.command, self.args
         );
-
-        let result = Command::new(&self.command)
-            .args(&self.args)
-            .env("PATH", path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
-
-        match result {
-            Ok(_) => {
-                self.update_next_run();
-                info!(
-                    "Successfully executed task '{}'. Next run: {:?}",
-                    self.name, self.next_run
-                );
-                Ok(())
-            }
-            Err(e) => {
-                let err_msg = format!("Failed to execute task '{}': {}", self.name, e);
-                error!("{}", err_msg);
-                Err(err_msg)
-            }
-        }
+        // Every attempt advances the schedule, including launch errors. Otherwise
+        // an invalid command would be retried and reported on every scheduler poll.
+        self.update_next_run();
+        reporter.run_background(&self.name, &self.command, &self.args, path, false)
     }
 }
 
@@ -245,6 +230,7 @@ pub struct TaskScheduler {
     running: Arc<Mutex<bool>>,
     states: Arc<Mutex<HashMap<String, TaskState>>>,
     state_file: PathBuf,
+    reporter: CommandReporter,
 }
 
 impl TaskScheduler {
@@ -258,7 +244,14 @@ impl TaskScheduler {
             running: Arc::new(Mutex::new(false)),
             states: Arc::new(Mutex::new(states)),
             state_file,
+            reporter: CommandReporter::default(),
         }
+    }
+
+    /// Use the same history and notification delivery as one-shot commands.
+    pub fn with_reporter(mut self, reporter: CommandReporter) -> Self {
+        self.reporter = reporter;
+        self
     }
 
     /// Add a scheduled task
@@ -362,6 +355,7 @@ impl TaskScheduler {
         let running = Arc::clone(&self.running);
         let states = Arc::clone(&self.states);
         let state_file = self.state_file.clone();
+        let reporter = self.reporter.clone();
 
         thread::spawn(move || {
             info!("Task scheduler started");
@@ -375,11 +369,10 @@ impl TaskScheduler {
                     if task.should_run(&now) {
                         debug!("Task '{}' is due to run", key);
                         let path = path.lock().unwrap().clone();
-                        if let Err(e) = task.execute(&path) {
+                        if let Err(e) = task.execute_reported(&path, &reporter) {
                             error!("Task '{}' execution failed: {}", key, e);
-                        } else {
-                            states_changed = true;
                         }
+                        states_changed = true;
                     }
                 }
 
@@ -429,17 +422,15 @@ impl TaskScheduler {
         let mut tasks = self.tasks.lock().unwrap();
         let path = self.path.lock().unwrap().clone();
         let result = if let Some(task) = tasks.get_mut(key) {
-            task.execute(&path)
+            task.execute_reported(&path, &self.reporter)
         } else {
-            Err(format!("Task '{}' not found", key))
+            return Err(format!("Task '{}' not found", key));
         };
 
         drop(tasks);
 
         // Save states after manual execution
-        if result.is_ok() {
-            self.save_states();
-        }
+        self.save_states();
 
         result
     }
@@ -485,11 +476,10 @@ impl TaskScheduler {
                     );
 
                     let path = self.path.lock().unwrap().clone();
-                    if let Err(e) = task.execute(&path) {
+                    if let Err(e) = task.execute_reported(&path, &self.reporter) {
                         error!("Failed to run missed task '{}': {}", key, e);
-                    } else {
-                        any_task_run = true;
                     }
+                    any_task_run = true;
                 }
             } else {
                 info!("Task '{}' has no next_run scheduled", key);
@@ -604,5 +594,108 @@ pub fn capitalize_first(s: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::command::tests::Harness;
+
+    fn scheduler(harness: &Harness, command: &str, script: &str) -> TaskScheduler {
+        let scheduler = TaskScheduler::new("/usr/bin:/bin".into(), harness)
+            .with_reporter(harness.runner.reporter());
+        scheduler
+            .add_task(
+                "test".into(),
+                &ScheduledTaskConfig {
+                    name: "Scheduled test".into(),
+                    command: command.into(),
+                    args: vec!["-c".into(), script.into()],
+                    cron_schedule: "0 0 * * *".into(),
+                },
+            )
+            .unwrap();
+        scheduler
+    }
+
+    fn make_due(scheduler: &TaskScheduler) {
+        scheduler
+            .tasks
+            .lock()
+            .unwrap()
+            .get_mut("test")
+            .unwrap()
+            .next_run = Some(Local::now() - chrono::Duration::minutes(1));
+    }
+
+    #[test]
+    fn manual_scheduled_failure_has_a_completion_report_and_history() {
+        let harness = Harness::new("", "silent");
+        let scheduler = scheduler(&harness, "/bin/sh", "echo scheduled-error >&2; exit 42");
+        scheduler.run_task_now("test").unwrap();
+        let failure = harness.result().failure.unwrap();
+        assert!(failure.summary.contains("42"));
+        assert_eq!(failure.stderr, "scheduled-error\n");
+        assert!(harness.history().contains(&failure.logs()));
+        assert!(scheduler.get_task("test").unwrap().last_run.is_some());
+    }
+
+    #[test]
+    fn missed_launch_failure_is_reported_and_not_retried_on_each_check() {
+        let harness = Harness::new("", "silent");
+        let scheduler = scheduler(&harness, "/nonexistent/something-bg-test", "");
+        make_due(&scheduler);
+        scheduler.check_and_run_missed_tasks();
+        let failure = harness.result().failure.unwrap();
+        assert!(failure.summary.contains("Could not start command"));
+        assert!(harness.history().contains(&failure.failure_time_label()));
+        let task = scheduler.get_task("test").unwrap();
+        assert!(task.last_run.is_some());
+        assert!(task.next_run.unwrap() > Local::now());
+        let persisted = load_task_states(&harness.state_path());
+        assert_eq!(persisted["test"].next_run, task.next_run);
+        assert_eq!(persisted["test"].last_run, task.last_run);
+        scheduler.check_and_run_missed_tasks();
+        assert!(harness.events.lock().unwrap().try_recv().is_err());
+    }
+
+    #[test]
+    fn manual_launch_failure_advances_and_saves_the_schedule() {
+        let harness = Harness::new("", "silent");
+        let scheduler = scheduler(&harness, "/nonexistent/something-bg-test", "");
+        make_due(&scheduler);
+        assert!(scheduler.run_task_now("test").is_err());
+        assert!(harness.result().failure.is_some());
+        assert!(
+            load_task_states(&harness.state_path())["test"]
+                .next_run
+                .unwrap()
+                > Local::now()
+        );
+    }
+
+    #[test]
+    fn automatic_scheduled_failure_is_reported_after_process_exit() {
+        let harness = Harness::new("", "silent");
+        let scheduler = scheduler(&harness, "/bin/sh", "echo automatic-error >&2; exit 9");
+        make_due(&scheduler);
+        scheduler.start();
+        let failure = harness.result().failure.unwrap();
+        scheduler.stop();
+        assert!(failure.summary.contains("9"));
+        assert_eq!(failure.stderr, "automatic-error\n");
+        assert!(harness.history().contains(&failure.logs()));
+    }
+
+    #[test]
+    fn successful_scheduled_tasks_stay_quiet_and_log_completion() {
+        let harness = Harness::new("", "silent");
+        let scheduler = scheduler(&harness, "/bin/sh", "echo scheduled-ok");
+        scheduler.run_task_now("test").unwrap();
+        let history = harness.history();
+        assert!(history.contains("[OK]"));
+        assert!(history.contains("scheduled-ok"));
+        assert!(harness.events.lock().unwrap().try_recv().is_err());
     }
 }

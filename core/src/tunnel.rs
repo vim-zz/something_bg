@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, FixedOffset, Local};
 use log::{debug, error, info, warn};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -22,6 +23,10 @@ pub struct TunnelCommand {
 /// Latest failed attempt, retained in memory until retry, stop, or app exit.
 #[derive(Clone, Debug)]
 pub struct TunnelFailure {
+    /// When this process launch was attempted.
+    pub started_at: DateTime<FixedOffset>,
+    /// When failure was observed, with the local UTC offset at that time.
+    pub failed_at: DateTime<FixedOffset>,
     pub command_line: String,
     pub env_path: String,
     pub summary: String,
@@ -30,7 +35,31 @@ pub struct TunnelFailure {
 }
 
 impl TunnelFailure {
+    pub fn start_time_label(&self) -> String {
+        format!(
+            "Started at {}",
+            self.started_at.format("%Y-%m-%d %H:%M:%S %:z")
+        )
+    }
+
+    pub fn failure_time_label(&self) -> String {
+        format!(
+            "Failed at {}",
+            self.failed_at.format("%Y-%m-%d %H:%M:%S %:z")
+        )
+    }
+
     pub fn logs(&self) -> String {
+        format!(
+            "{}\n{}\n{}",
+            self.start_time_label(),
+            self.failure_time_label(),
+            self.error_logs()
+        )
+    }
+
+    /// Error content without metadata, for display in the diagnostics panel.
+    pub fn error_logs(&self) -> String {
         format!(
             "{}\n\nStandard error:\n{}\n\nStandard output:\n{}",
             self.summary,
@@ -61,10 +90,14 @@ fn shell_quote(value: &str) -> String {
 }
 
 fn format_command_line(command: &TunnelCommand, path: &str) -> String {
+    format_process_command(&command.command, &command.args, path)
+}
+
+pub(crate) fn format_process_command(command: &str, args: &[String], path: &str) -> String {
     std::iter::once("env".to_owned())
         .chain(std::iter::once(shell_quote(&format!("PATH={path}"))))
-        .chain(std::iter::once(shell_quote(&command.command)))
-        .chain(command.args.iter().map(|arg| shell_quote(arg)))
+        .chain(std::iter::once(shell_quote(command)))
+        .chain(args.iter().map(|arg| shell_quote(arg)))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -99,13 +132,13 @@ impl OutputTail {
     }
 }
 
-struct OutputCapture {
+pub(crate) struct OutputCapture {
     tail: Arc<Mutex<OutputTail>>,
     finished: std::sync::mpsc::Receiver<()>,
 }
 
 impl OutputCapture {
-    fn finish(self) -> String {
+    pub(crate) fn finish(self) -> String {
         // Never wait indefinitely for descendants that inherited the output pipe.
         let _ = self.finished.recv_timeout(Duration::from_millis(250));
         self.tail.lock().unwrap().text()
@@ -113,15 +146,15 @@ impl OutputCapture {
 }
 
 #[cfg(unix)]
-trait OutputPipe: Read + std::os::fd::AsRawFd + Send + 'static {}
+pub(crate) trait OutputPipe: Read + std::os::fd::AsRawFd + Send + 'static {}
 #[cfg(unix)]
 impl<T: Read + std::os::fd::AsRawFd + Send + 'static> OutputPipe for T {}
 #[cfg(not(unix))]
-trait OutputPipe: Read + Send + 'static {}
+pub(crate) trait OutputPipe: Read + Send + 'static {}
 #[cfg(not(unix))]
 impl<T: Read + Send + 'static> OutputPipe for T {}
 
-fn capture_output(mut pipe: impl OutputPipe, done: Arc<AtomicBool>) -> OutputCapture {
+pub(crate) fn capture_output(mut pipe: impl OutputPipe, done: Arc<AtomicBool>) -> OutputCapture {
     let tail = Arc::new(Mutex::new(OutputTail::default()));
     let output = tail.clone();
     let (finished, receiver) = std::sync::mpsc::channel();
@@ -325,6 +358,7 @@ impl TunnelManager {
                 if generations.get(&command_key) != Some(&generation) {
                     return;
                 }
+                let started_at = Local::now().fixed_offset();
                 let spawned = cmd.spawn();
                 drop(generations);
                 let failure = match spawned {
@@ -333,10 +367,12 @@ impl TunnelManager {
                         let out = capture_output(child.stdout.take().unwrap(), done.clone());
                         let err = capture_output(child.stderr.take().unwrap(), done.clone());
                         let status = child.wait();
+                        // Record observation time before draining output or UI delivery.
+                        let failed_at = Local::now().fixed_offset();
                         done.store(true, Ordering::Release);
                         stdout = out.finish();
                         stderr = err.finish();
-                        match status {
+                        let summary = match status {
                             // Some commands (e.g. colima start) start a daemon and
                             // exit successfully. Preserve their active state.
                             Ok(status) if status.success() => None,
@@ -344,15 +380,21 @@ impl TunnelManager {
                             Err(error) => {
                                 Some(format!("Could not wait for connection command: {error}"))
                             }
-                        }
+                        };
+                        summary.map(|summary| (summary, failed_at))
                     }
-                    Err(error) => Some(format!("Could not start connection command: {error}")),
+                    Err(error) => Some((
+                        format!("Could not start connection command: {error}"),
+                        Local::now().fixed_offset(),
+                    )),
                 };
-                if let Some(summary) = failure {
+                if let Some((summary, failed_at)) = failure {
                     manager.record_failure(
                         &command_key,
                         generation,
                         TunnelFailure {
+                            started_at,
+                            failed_at,
                             command_line: format_command_line(&command, &env_path),
                             env_path,
                             summary,
@@ -514,12 +556,22 @@ mod tests {
 
     fn failure() -> TunnelFailure {
         TunnelFailure {
+            started_at: DateTime::parse_from_rfc3339("2026-09-19T14:00:00+03:00").unwrap(),
+            failed_at: DateTime::parse_from_rfc3339("2026-09-19T14:05:09+03:00").unwrap(),
             command_line: "test".into(),
             env_path: "/usr/bin:/bin".into(),
             summary: "exit 255".into(),
             stdout: "Switched context".into(),
             stderr: "Token has expired".into(),
         }
+    }
+
+    #[test]
+    fn failure_logs_include_original_local_time_and_exit_status() {
+        assert_eq!(
+            failure().logs(),
+            "Started at 2026-09-19 14:00:00 +03:00\nFailed at 2026-09-19 14:05:09 +03:00\nexit 255\n\nStandard error:\nToken has expired\n\nStandard output:\nSwitched context"
+        );
     }
 
     fn active_manager() -> TunnelManager {
@@ -550,9 +602,15 @@ mod tests {
                 .logs()
                 .contains("Token has expired")
         );
-        assert_eq!(manager.take_failures().len(), 1);
+        let notifications = manager.take_failures();
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].1.failed_at, failure().failed_at);
+        assert_eq!(notifications[0].1.started_at, failure().started_at);
         assert!(manager.take_failures().is_empty());
-        assert!(manager.failure("test").is_some());
+        assert_eq!(
+            manager.failure("test").unwrap().failed_at,
+            failure().failed_at
+        );
     }
 
     #[test]
@@ -633,8 +691,13 @@ mod tests {
             HashMap::from([("test".into(), cmd)]),
             "/usr/bin:/bin".into(),
         );
+        let started_at = Local::now().fixed_offset();
         manager.toggle("test", true);
         let failure = wait_for_failure(&manager);
+        assert!(failure.started_at >= started_at);
+        assert!(failure.started_at <= failure.failed_at);
+        assert!(failure.failed_at >= started_at);
+        assert!(failure.failed_at <= Local::now().fixed_offset());
         assert!(failure.summary.contains("255"));
         assert_eq!(failure.stdout, "Switched to context prod\n");
         assert_eq!(failure.stderr, "aws: Token has expired\n");
@@ -650,8 +713,13 @@ mod tests {
             HashMap::from([("test".into(), cmd)]),
             "/usr/bin:/bin".into(),
         );
+        let started_at = Local::now().fixed_offset();
         manager.toggle("test", true);
         let original_failure = wait_for_failure(&manager);
+        assert!(original_failure.started_at >= started_at);
+        assert!(original_failure.started_at <= original_failure.failed_at);
+        assert!(original_failure.failed_at >= started_at);
+        assert!(original_failure.failed_at <= Local::now().fixed_offset());
         assert!(original_failure.summary.contains("Could not start"));
         assert_eq!(original_failure.env_path, "/usr/bin:/bin");
         let mut replacement = command();
@@ -660,8 +728,13 @@ mod tests {
             HashMap::from([("test".into(), replacement)]),
             "/custom/bin:/usr/bin:/bin".into(),
         );
+        let retried_at = Local::now().fixed_offset();
         manager.toggle("test", true);
         let failure = wait_for_failure(&manager);
+        assert!(failure.started_at >= retried_at);
+        assert!(failure.started_at <= failure.failed_at);
+        assert!(failure.failed_at >= retried_at);
+        assert!(failure.failed_at >= original_failure.failed_at);
         assert_eq!(failure.stderr, "retry\n");
         assert_eq!(failure.env_path, "/custom/bin:/usr/bin:/bin");
         assert_eq!(original_failure.env_path, "/usr/bin:/bin");

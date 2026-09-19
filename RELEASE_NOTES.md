@@ -1,5 +1,13 @@
 # Release Notes - Something in the Background
 
+## v1.17.0
+
+**Release Date:** September 19, 2026
+
+- Added start and failure timestamps to macOS menus, error details, and copied logs.
+- Added failure reports for background one-shot commands and scheduled tasks, including exit status and captured output.
+- Added completion records for background commands and scheduled tasks in command history.
+
 ## v1.16.0
 
 **Release Date:** September 19, 2026

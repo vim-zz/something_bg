@@ -124,7 +124,9 @@ cargo build -p something_bg_windows --release
 
 If a connection command cannot start or exits with an error, its native menu item shows a warning status icon while keeping its original name and the app sends a compact notification. Open **View Details** from the notification or **Show Error…** in the connection’s submenu to inspect the command and logs. The window supports text selection, **Copy Command**, and **Copy Logs**. Choose **Retry** from the failed connection’s submenu to try again.
 
-The copied command includes the configured PATH and shell-quoted arguments. Logs retain the most recent 64 KiB of stdout and stderr, with a notice when earlier output was truncated. The menu retains the latest failure until retry or app exit; notifications retain the matching failure snapshot.
+On macOS, the failed connection’s submenu shows “Started” and “Failed” using the same human-readable time format as scheduled runs, such as “Failed: Today at 16:30.” The error window shows both full local timestamps and UTC offsets as metadata above the command, outside the colored panels. Notifications and copied logs also retain the full timestamp. Retry records a new time if it fails again.
+
+The copied command includes the configured PATH and shell-quoted arguments. Logs retain the most recent 64 KiB of stdout and stderr, with a notice when earlier output was truncated. The menu retains the latest failure in memory until retry, stop, removal from configuration, or app exit; notifications retain the matching failure snapshot, including its original timestamp.
 
 Detection uses launch failures and nonzero exit status. A process that is still running is not probed for connection health, and successful service-start commands such as `colima start` remain active.
 
@@ -232,9 +234,11 @@ Run any command with a single click from the menu bar. Each command has a config
 
 | Mode | Behavior | Best for |
 |------|----------|----------|
-| `silent` (default) | Fire and forget, no output | Instant commands (`xattr`, `pkill`) |
+| `silent` (default) | Run in background; notify only on failure | Instant commands (`xattr`, `pkill`) |
 | `notify` | Run in background, show notification on completion with last 5 lines of output | Scripts that take seconds to minutes |
 | `terminal` | Open a terminal window with live output | Long/interactive scripts, debugging |
+
+Background commands (`silent` and `notify`) are monitored until they exit. Launch errors, nonzero exits, and signal termination produce a failure notification and a report in `command_history.log`, including the local failure time with UTC offset, exit status when available, command, PATH, and the last 64 KiB of each output stream. On macOS, **View Details** opens the copyable report. Successful silent commands are logged without a notification. Terminal-mode commands are handed to the terminal; their completion is not monitored by the app.
 
 ```toml
 version = 2
@@ -285,6 +289,8 @@ kind = "command"
 Filenames are title-cased for display: `delete-logs.sh` → "Delete Logs".
 
 ### Scheduled Tasks
+
+Scheduled tasks use the same failure reports as background one-shot commands, whether started automatically, through **Run Now**, or as a missed run after startup or wake. Successful runs are logged quietly. Each launch attempt advances the schedule, including launch failures, so a broken command is retried at its next scheduled time rather than on every scheduler check.
 
 Common cron patterns:
 

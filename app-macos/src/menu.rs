@@ -18,6 +18,7 @@ use something_bg_core::config::{
     CommandConfig, Config, ScheduledTaskConfig, SectionKind, TunnelConfig,
 };
 use something_bg_core::platform::AppPaths;
+use something_bg_core::tunnel::TunnelFailure;
 
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
@@ -50,6 +51,7 @@ const CHECK_FOR_UPDATES_TAG: isize = 10_001;
 const CONNECTION_TAG: isize = 10_002;
 const START_AT_LOGIN_TAG: isize = 10_003;
 const LOGIN_SETTINGS_TAG: isize = 10_004;
+const SCHEDULED_TASK_TAG: isize = 10_005;
 
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
@@ -97,7 +99,7 @@ define_class!(
                 if let Some(app) = GLOBAL_APP.get()
                     && let Some(failure) = app.tunnel_manager.failure(&key) {
                     let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or(key);
-                    crate::connection_details::show(&name, &failure.command_line, &failure.env_path, &failure.logs());
+                    crate::connection_details::show(&name, &failure.command_line, &failure.env_path, &failure.error_logs(), Some(&failure.start_time_label()), Some(&failure.failure_time_label()));
                 }
             }
         }
@@ -438,14 +440,32 @@ fn connection_presentation(name: &str, active: bool, faulty: bool) -> (String, i
 
 /// A native submenu takes over the parent item's click, so keep retry available
 /// alongside the diagnostics action while the connection is faulty.
-fn update_connection_submenu(item: &NSMenuItem, command_id: &str, faulty: bool) {
-    if !faulty {
+fn update_connection_submenu(item: &NSMenuItem, command_id: &str, failure: Option<&TunnelFailure>) {
+    let Some(failure) = failure else {
         if item.submenu().is_some() {
             item.setSubmenu(None);
         }
         return;
-    }
-    if item.submenu().is_some() {
+    };
+    let time_labels = [
+        ("Started", failure.started_at),
+        ("Failed", failure.failed_at),
+    ]
+    .map(|(label, time)| {
+        NSString::from_str(&format!(
+            "{label}: {}",
+            something_bg_core::scheduler::format_last_run(&Some(
+                time.with_timezone(&chrono::Local)
+            ))
+        ))
+    });
+    if let Some(submenu) = item.submenu() {
+        // A retry may fail before the next refresh observes its active state.
+        for (index, label) in time_labels.iter().enumerate() {
+            if let Some(time_item) = submenu.itemAtIndex(index as isize) {
+                time_item.setTitle(label);
+            }
+        }
         return;
     }
     let Some(target) = item.target() else {
@@ -454,6 +474,12 @@ fn update_connection_submenu(item: &NSMenuItem, command_id: &str, faulty: bool) 
     let mtm = item.mtm();
     let submenu = NSMenu::new(mtm);
     submenu.setAutoenablesItems(false);
+    for label in &time_labels {
+        let time_item = create_menu_item_with_action(label, None, ns_string!(""), mtm);
+        time_item.setEnabled(false);
+        submenu.addItem(&time_item);
+    }
+    submenu.addItem(&NSMenuItem::separatorItem(mtm));
     for (title, action) in [
         ("Show Error…", sel!(showConnectionError:)),
         ("Retry", sel!(toggleTunnel:)),
@@ -485,8 +511,9 @@ fn refresh_connection_items(menu: &NSMenu) {
         }
         if let Some(key) = item.representedObject() {
             let key = extract_nsstring_from_object(&key);
-            let faulty = app.tunnel_manager.has_failure(&key);
             if item.tag() == CONNECTION_TAG {
+                let failure = app.tunnel_manager.failure(&key);
+                let faulty = failure.is_some();
                 let name = app
                     .tunnel_names
                     .lock()
@@ -503,7 +530,7 @@ fn refresh_connection_items(menu: &NSMenu) {
                 let (title, state) = connection_presentation(&name, active, faulty);
                 item.setTitle(&NSString::from_str(&title));
                 item.setState(state);
-                update_connection_submenu(&item, &key, faulty);
+                update_connection_submenu(&item, &key, failure.as_ref());
                 item.setToolTip(Some(&NSString::from_str(if faulty {
                     "Open the submenu to view the error or retry the connection."
                 } else {
@@ -619,6 +646,9 @@ fn update_scheduled_task_items(menu: &NSMenu) {
     let num_items = menu.numberOfItems();
     for i in 0..num_items {
         if let Some(item) = menu.itemAtIndex(i) {
+            if item.tag() != SCHEDULED_TASK_TAG {
+                continue;
+            }
             // Check if this item has a submenu (scheduled tasks have submenus)
             if let Some(submenu) = item.submenu() {
                 // The submenu should have items in this order:
@@ -874,13 +904,14 @@ fn create_menu_item(
             .unwrap()
             .contains(command_id)
     });
-    let faulty = GLOBAL_APP
+    let failure = GLOBAL_APP
         .get()
-        .is_some_and(|app| app.tunnel_manager.has_failure(command_id));
+        .and_then(|app| app.tunnel_manager.failure(command_id));
+    let faulty = failure.is_some();
     let (title, state) = connection_presentation(&tunnel_config.name, active, faulty);
     item.setTitle(&NSString::from_str(&title));
     item.setState(state);
-    update_connection_submenu(&item, command_id, faulty);
+    update_connection_submenu(&item, command_id, failure.as_ref());
     if let Some(image) = load_icon("sf:exclamationmark.triangle.fill") {
         // AppKit retains the image used for the native mixed-state indicator.
         unsafe {
@@ -919,6 +950,7 @@ fn create_scheduled_task_item(
     // Main menu item with task name
     let title_ns = NSString::from_str(&task_config.name);
     let item = create_menu_item_with_action(&title_ns, None, ns_string!(""), mtm);
+    item.setTag(SCHEDULED_TASK_TAG);
 
     // Create submenu
     let submenu = NSMenu::new(mtm);

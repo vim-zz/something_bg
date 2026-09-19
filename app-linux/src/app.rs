@@ -100,7 +100,9 @@ impl AppState {
         command_runner.register_all(&config.commands);
 
         // Initialize the task scheduler
-        let scheduler = Arc::new(TaskScheduler::new(path, paths.as_ref()));
+        let scheduler = Arc::new(
+            TaskScheduler::new(path, paths.as_ref()).with_reporter(command_runner.reporter()),
+        );
 
         // Add scheduled tasks from config
         for (key, task_config) in &config.schedules {

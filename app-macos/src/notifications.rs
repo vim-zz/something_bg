@@ -24,6 +24,8 @@ enum Destination {
         command: String,
         path: String,
         logs: String,
+        started_at: Option<String>,
+        failed_at: Option<String>,
     },
 }
 
@@ -45,12 +47,26 @@ impl Destination {
                 command,
                 path,
                 logs,
-            } => vec![
-                ("tunnelName", name),
-                ("command", command),
-                ("path", path),
-                ("logs", logs),
-            ],
+                started_at,
+                failed_at,
+            } => {
+                let mut pairs = vec![
+                    ("tunnelName", name),
+                    ("command", command),
+                    ("path", path),
+                    ("logs", logs),
+                ];
+                if let Some(time) = started_at {
+                    pairs.push(("startedAt", time));
+                }
+                if let Some(time) = failed_at {
+                    pairs.push(("failedAt", time));
+                }
+                pairs
+                    .into_iter()
+                    .map(|(key, value)| (key, value.as_str()))
+                    .collect()
+            }
         };
         let keys: Vec<_> = pairs
             .iter()
@@ -84,6 +100,8 @@ impl Destination {
                 name,
                 command,
                 logs,
+                started_at: string("startedAt"),
+                failed_at: string("failedAt"),
                 path: string("path")
                     .unwrap_or_else(|| "(not recorded for this notification)".to_owned()),
             };
@@ -105,8 +123,17 @@ impl Destination {
                 command,
                 path,
                 logs,
+                started_at,
+                failed_at,
             } => {
-                crate::connection_details::show(&name, &command, &path, &logs);
+                crate::connection_details::show(
+                    &name,
+                    &command,
+                    &path,
+                    &logs,
+                    started_at.as_deref(),
+                    failed_at.as_deref(),
+                );
             }
             Self::History => {
                 if let Some(app) = crate::GLOBAL_APP.get()
@@ -218,14 +245,28 @@ pub fn send_login_notification(body: &str) {
 }
 
 pub fn send_tunnel_failure(name: &str, failure: &TunnelFailure) {
+    send_process_failure(&format!("{name} — Faulty"), name, failure);
+}
+
+pub fn send_command_failure(name: &str, failure: &TunnelFailure) {
+    send_process_failure(&format!("{name} — Failed"), name, failure);
+}
+
+fn send_process_failure(title: &str, name: &str, failure: &TunnelFailure) {
     deliver_notification(
-        &format!("{name} — Faulty"),
-        "Connection failed. View Details to inspect and copy the command and error logs.",
+        title,
+        &format!(
+            "{}. {} View Details for the command and error logs.",
+            failure.failure_time_label(),
+            failure.summary,
+        ),
         Destination::Failure {
             name: name.to_owned(),
             command: failure.command_line.clone(),
             path: failure.env_path.clone(),
-            logs: failure.logs(),
+            logs: failure.error_logs(),
+            started_at: Some(failure.start_time_label()),
+            failed_at: Some(failure.failure_time_label()),
         },
     );
 }
@@ -294,6 +335,8 @@ mod tests {
             command: "false".into(),
             path: "/original/path".into(),
             logs: "Original failure".into(),
+            started_at: Some("Started at 2026-09-19 14:00:00 +03:00".into()),
+            failed_at: Some("Failed at 2026-09-19 14:05:09 +03:00".into()),
         };
         let first = make_request("Failed", "First attempt", &original);
         let second = make_request(
@@ -304,6 +347,8 @@ mod tests {
                 command: "other".into(),
                 path: "/new/path".into(),
                 logs: "New failure".into(),
+                started_at: Some("Started at 2026-09-19 14:09:00 +03:00".into()),
+                failed_at: Some("Failed at 2026-09-19 14:10:00 +03:00".into()),
             },
         );
         assert_ne!(
@@ -329,5 +374,18 @@ mod tests {
                 destination
             );
         }
+    }
+
+    #[test]
+    fn older_failure_notifications_without_timestamp_still_open_details() {
+        let original = Destination::Failure {
+            name: "Old failure".into(),
+            command: "false".into(),
+            path: "/usr/bin:/bin".into(),
+            logs: "Original logs".into(),
+            started_at: None,
+            failed_at: None,
+        };
+        assert_eq!(Destination::from_details(&original.details()), original);
     }
 }

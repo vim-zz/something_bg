@@ -96,7 +96,9 @@ impl AppState {
         // Register commands from config
         command_runner.register_all(&config.commands);
 
-        let scheduler = Arc::new(TaskScheduler::new(path, paths.as_ref()));
+        let scheduler = Arc::new(
+            TaskScheduler::new(path, paths.as_ref()).with_reporter(command_runner.reporter()),
+        );
         for (key, task_config) in &config.schedules {
             if let Err(e) = scheduler.add_task(key.clone(), task_config) {
                 error!("Failed to add scheduled task '{}': {}", key, e);

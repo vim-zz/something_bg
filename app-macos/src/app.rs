@@ -71,6 +71,10 @@ impl App {
         // Set macOS notify callback using native UserNotifications
         // (shows the app icon instead of Script Editor)
         command_runner.set_notify_callback(std::sync::Arc::new(|event| {
+            if let Some(failure) = event.failure {
+                crate::notifications::send_command_failure(event.name, failure);
+                return;
+            }
             if event.is_running {
                 send_notification(event.name, "\u{23f3} Running...");
                 return;
@@ -122,7 +126,8 @@ impl App {
         command_runner.register_all(&config.commands);
 
         // Initialize the task scheduler
-        let task_scheduler = TaskScheduler::new(path, paths.as_ref());
+        let task_scheduler =
+            TaskScheduler::new(path, paths.as_ref()).with_reporter(command_runner.reporter());
 
         // Add scheduled tasks from config
         for (key, task_config) in &config.schedules {

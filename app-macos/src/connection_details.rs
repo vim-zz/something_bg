@@ -119,7 +119,14 @@ fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
 }
 
-pub fn show(name: &str, command: &str, path: &str, logs: &str) {
+pub fn show(
+    name: &str,
+    command: &str,
+    path: &str,
+    logs: &str,
+    started_at: Option<&str>,
+    failed_at: Option<&str>,
+) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
@@ -128,7 +135,7 @@ pub fn show(name: &str, command: &str, path: &str, logs: &str) {
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             mtm.alloc(),
-            rect(0.0, 0.0, 760.0, 680.0),
+            rect(0.0, 0.0, 760.0, 740.0),
             NSWindowStyleMask::Titled | NSWindowStyleMask::Closable | NSWindowStyleMask::Resizable,
             NSBackingStoreType::Buffered,
             false,
@@ -137,9 +144,26 @@ pub fn show(name: &str, command: &str, path: &str, logs: &str) {
     unsafe {
         window.setReleasedWhenClosed(false);
     }
-    window.setTitle(&NSString::from_str(&format!("{name} — Connection Error")));
-    window.setContentMinSize(NSSize::new(560.0, 540.0));
+    window.setTitle(&NSString::from_str(&format!("{name} — Process Error")));
+    window.setContentMinSize(NSSize::new(560.0, 600.0));
     let content = window.contentView().unwrap();
+    for (index, time) in [started_at, failed_at].into_iter().flatten().enumerate() {
+        let metadata = NSTextField::initWithFrame(
+            mtm.alloc(),
+            rect(20.0, 700.0 - index as f64 * 25.0, 720.0, 20.0),
+        );
+        metadata.setStringValue(&NSString::from_str(time));
+        metadata.setEditable(false);
+        metadata.setSelectable(true);
+        metadata.setBordered(false);
+        metadata.setDrawsBackground(false);
+        metadata.setFont(Some(&NSFont::systemFontOfSize(12.0)));
+        metadata.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        metadata.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewMinYMargin,
+        );
+        content.addSubview(&metadata);
+    }
     label(&content, "Command", rect(20.0, 631.0, 400.0, 20.0), mtm);
     text_area(
         &content,
@@ -185,7 +209,11 @@ pub fn show(name: &str, command: &str, path: &str, logs: &str) {
             _handler: handler,
             command: command.to_owned(),
             path: path.to_owned(),
-            logs: logs.to_owned(),
+            logs: [started_at, failed_at, Some(logs)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join("\n"),
         });
     });
     window.makeKeyAndOrderFront(None);
