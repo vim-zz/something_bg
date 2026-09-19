@@ -9,23 +9,22 @@ let output = URL(fileURLWithPath: "resources/images", isDirectory: true)
 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 
 func drawIcon(_ context: CGContext, active: Bool) {
-    let outline = CGPath(roundedRect: CGRect(x: 1, y: 1, width: 16, height: 16),
+    let outline = CGPath(roundedRect: CGRect(x: 1, y: 1, width: 14.5, height: 14.5),
                          cornerWidth: 3, cornerHeight: 3, transform: nil)
+    context.saveGState()
+    if active {
+        // The badge interrupts both the outline and stripes at the upper-right corner.
+        // Reserve the same badge space in both states so the background stays fixed.
+        context.addRect(CGRect(x: 0, y: 0, width: size, height: size))
+        context.addEllipse(in: CGRect(x: 9.3, y: 9.3, width: 9.4, height: 9.4))
+        context.clip(using: .evenOdd)
+    }
     context.setStrokeColor(CGColor(gray: 0, alpha: 1))
     context.setLineWidth(1.25)
     context.addPath(outline)
     context.strokePath()
-
-    context.saveGState()
     context.addPath(outline)
     context.clip()
-    if active {
-        // Clear the hatch field around the solid circle, leaving a transparent halo.
-        // Both states share the same boundary and stripe positions.
-        context.addRect(CGRect(x: 0, y: 0, width: size, height: size))
-        context.addEllipse(in: CGRect(x: 4.5, y: 4.5, width: 9, height: 9))
-        context.clip(using: .evenOdd)
-    }
     context.setLineWidth(1.15)
     for offset in stride(from: -15, through: 15, by: 5) {
         context.move(to: CGPoint(x: CGFloat(offset), y: 0))
@@ -36,7 +35,7 @@ func drawIcon(_ context: CGContext, active: Bool) {
 
     if active {
         context.setFillColor(CGColor(gray: 0, alpha: 1))
-        context.fillEllipse(in: CGRect(x: 5.75, y: 5.75, width: 6.5, height: 6.5))
+        context.fillEllipse(in: CGRect(x: 10.5, y: 10.5, width: 7, height: 7))
     }
 }
 

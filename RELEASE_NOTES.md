@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.15.2
+
+**Release Date:** September 19, 2026
+
+- The menu bar icon now shows a solid badge in its upper-right corner when background processes are active.
+- The app icon in notifications, Dock, Finder, and About now uses the matching corner badge design.
+
 ## v1.15.1
 
 **Release Date:** September 18, 2026
