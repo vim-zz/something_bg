@@ -1,5 +1,9 @@
 # Download statistics
 
+![Daily downloads by OS over the latest 60 days](daily-downloads.svg)
+
+The chart sums all releases per OS over the latest 60 calendar days. Unknown counts and multi-day intervals appear as gaps, not zeros.
+
 Latest snapshot: 2026-09-19T04:38:00Z (UTC).
 
 Counts cover downloads between snapshots, not unique users or exact calendar days. The first snapshot is a baseline; no earlier download history is available.
