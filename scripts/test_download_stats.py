@@ -1,10 +1,11 @@
 import copy
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 
@@ -80,6 +81,56 @@ class DownloadStatsTests(unittest.TestCase):
         self.assertEqual(row["interval_start"], "2026-09-17T00:17:00Z")
         self.assertEqual(row["interval_end"], "2026-09-20T00:17:00Z")
 
+    def test_chart_sums_releases_and_preserves_zero_and_unknown_os_totals(self):
+        before = [asset(1, 10), asset(2, 5, version="v2.0.0"),
+                  asset(3, 3, "linux"), asset(4, 8, "windows"),
+                  asset(5, 4, "windows", version="v2.0.0")]
+        after = copy.deepcopy(before)
+        for item, increment in zip(after, [3, 2, 0, 1, -2]):
+            item["download_count"] += increment
+        rows = stats.interval_rows(None, snapshot(17, before))
+        rows += stats.interval_rows(snapshot(17, before), snapshot(18, after))
+        dates, series = stats.daily_series(rows, "2026-09-17", "2026-09-18")
+        self.assertEqual(dates, ["2026-09-17", "2026-09-18"])
+        self.assertEqual(series, {"macos": [None, 5], "linux": [None, 0], "windows": [None, None]})
+
+    def test_chart_keeps_calendar_gaps_and_limits_window_to_60_days(self):
+        rows = stats.interval_rows(snapshot(17, [asset()]), snapshot(20, [asset(count=16)]))
+        rows += stats.interval_rows(snapshot(20, [asset(count=16)]), snapshot(21, [asset(count=18)]))
+        dates, series = stats.daily_series(rows, "2026-09-17", "2026-09-21")
+        self.assertEqual(len(dates), 5)
+        self.assertEqual(series["macos"], [None, None, None, None, 2])
+        self.assertEqual(series["linux"], [None] * 5)
+        dates, _ = stats.daily_series(rows, "2026-01-01", "2026-09-21")
+        self.assertEqual(len(dates), 60)
+        self.assertEqual(date.fromisoformat(dates[0]), date(2026, 9, 21) - timedelta(days=59))
+
+    def test_chart_is_valid_svg_with_gaps_and_isolated_zero_points(self):
+        rows = [{"date": f"2026-09-{day}", "os": "macos", "downloads": value, "status": status}
+                for day, value, status in [(17, 0, "ok"), (18, 2, "ok"),
+                                           (19, "", "counter_reset"), (20, 0, "ok")]]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            stats.render_chart(output, rows, "2026-09-17", "2026-09-20")
+            svg = ET.parse(output / "daily-downloads.svg")
+        ns = {"svg": "http://www.w3.org/2000/svg"}
+        path = svg.find("svg:path[@data-os='macos']", ns).attrib["d"]
+        self.assertEqual(path.count("M"), 2)
+        self.assertEqual(path.count("L"), 1)
+        titles = [node.text for node in svg.findall("svg:circle/svg:title", ns)]
+        self.assertEqual(titles, ["2026-09-17 · macOS: 0 downloads",
+                                  "2026-09-18 · macOS: 2 downloads",
+                                  "2026-09-20 · macOS: 0 downloads"])
+
+    def test_chart_baseline_and_empty_assets_show_waiting_message(self):
+        for assets in [[], [asset()]]:
+            with self.subTest(assets=assets), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory)
+                with patch.object(stats, "collect", return_value=snapshot(17, assets)):
+                    stats.capture("owner/repo", output, datetime(2026, 9, 17, tzinfo=timezone.utc))
+                svg = ET.parse(output / "daily-downloads.svg")
+                self.assertIn("Waiting for consecutive daily snapshots", " ".join(svg.getroot().itertext()))
+
     def test_pagination_and_api_failure_propagation(self):
         with patch.object(stats.subprocess, "run") as run:
             run.return_value.stdout = '[[{"id": 1}], [{"id": 2}]]'
@@ -124,6 +175,11 @@ class DownloadStatsTests(unittest.TestCase):
             report = (output / "REPORT.md").read_text()
             self.assertIn("| v1.0.0 | macos | 3 | 13 | ok |", report)
             self.assertIn("baseline", report)
+            self.assertLess(report.index("(daily-downloads.svg)"), report.index("Latest snapshot:"))
+            self.assertTrue((output / "daily-downloads.svg").is_file())
+            first_chart = (output / "daily-downloads.svg").read_bytes()
+            stats.capture("owner/repo", output, datetime(2026, 9, 18, 12, tzinfo=timezone.utc))
+            self.assertEqual(first_chart, (output / "daily-downloads.svg").read_bytes())
 
     def test_failed_collection_does_not_write_partial_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
