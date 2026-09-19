@@ -34,7 +34,14 @@ func render(_ size: Int, to url: URL) throws {
         rect.fill(using: .sourceIn)
         return true
     }
-    tinted.draw(in: NSRect(x: 206, y: 206, width: 612, height: 612))
+    // Center the striped rectangle, not the PDF's combined rectangle-and-badge
+    // bounds. Its geometry in create_menubar_icons.swift is (1, 1, 14.5, 14.5).
+    // The badge extends above and to the right without shifting the background.
+    let background = NSRect(x: 1, y: 1, width: 14.5, height: 14.5)
+    let markScale: CGFloat = 612 / 18
+    tinted.draw(in: NSRect(x: 512 - background.midX * markScale,
+                          y: 512 - background.midY * markScale,
+                          width: 612, height: 612))
     NSGraphicsContext.restoreGraphicsState()
     try bitmap.representation(using: .png, properties: [:])!.write(to: url)
 }

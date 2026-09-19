@@ -20,6 +20,13 @@ something_bg_core = { path = "../core" }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSNotification"] }
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSStatusBar", "NSStatusItem", "NSWorkspace"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+    "std", "block2", "UNNotification", "UNNotificationAction", "UNNotificationCategory",
+    "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse",
+    "UNNotificationTrigger", "UNUserNotificationCenter",
+] }
+block2 = "0.6"
+dispatch2 = "0.3"
 core-foundation = "0.10"
 libc = "0.2"
 log = "0.4"

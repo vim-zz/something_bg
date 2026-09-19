@@ -16,6 +16,7 @@ mod connection_details;
 mod logger;
 mod login_item;
 mod menu;
+mod notifications;
 mod paths;
 mod updater;
 mod wake_detector;

@@ -5,10 +5,7 @@
 
 use log::{error, info, warn};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject};
-use objc2::{ClassType, MainThreadOnly, define_class};
 use objc2_app_kit::NSStatusItem;
-use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +13,7 @@ use something_bg_core::command::{CommandRunner, format_duration as format_elapse
 use something_bg_core::config::{Config, ConfigMonitor, LoginSettingUpdate};
 use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
-use something_bg_core::tunnel::{TunnelFailure, TunnelManager};
+use something_bg_core::tunnel::TunnelManager;
 
 use crate::paths::MacPaths;
 
@@ -71,7 +68,7 @@ impl App {
             .join("command_history.log");
         command_runner.set_history_path(history_log);
 
-        // Set macOS notify callback using native NSUserNotificationCenter
+        // Set macOS notify callback using native UserNotifications
         // (shows the app icon instead of Script Editor)
         command_runner.set_notify_callback(std::sync::Arc::new(|event| {
             if event.is_running {
@@ -273,161 +270,6 @@ impl App {
     }
 }
 
-// Notification delegate: handles "Show" button clicks on notifications
-define_class!(
-    #[unsafe(super(NSObject))]
-    #[thread_kind = MainThreadOnly]
-    #[name = "NotifDelegate"]
-    pub struct NotifDelegate;
-
-    unsafe impl NSObjectProtocol for NotifDelegate {}
-
-    impl NotifDelegate {
-        #[unsafe(method(userNotificationCenter:didActivateNotification:))]
-        fn did_activate(&self, _center: &AnyObject, notification: &AnyObject) {
-            // The notification carries its own snapshot so older notifications
-            // still show the matching command, PATH, and logs after a retry or reload.
-            let details: Option<Retained<objc2_foundation::NSDictionary<NSString, NSString>>> =
-                unsafe { objc2::msg_send![notification, userInfo] };
-            if details.as_ref().is_some_and(|info| info.objectForKey(objc2_foundation::ns_string!("loginItems")).is_some()) {
-                if let Err(error) = crate::login_item::open_settings() {
-                    warn!("Could not open Login Items settings: {error}");
-                }
-                return;
-            }
-            if let Some(details) = details
-                && let (Some(name), Some(command), Some(logs)) = (
-                    details.objectForKey(objc2_foundation::ns_string!("tunnelName")),
-                    details.objectForKey(objc2_foundation::ns_string!("command")),
-                    details.objectForKey(objc2_foundation::ns_string!("logs")),
-                ) {
-                let path = details.objectForKey(objc2_foundation::ns_string!("path"))
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "(not recorded for this notification)".to_owned());
-                crate::connection_details::show(&name.to_string(), &command.to_string(), &path, &logs.to_string());
-                return;
-            }
-            if let Some(app) = crate::GLOBAL_APP.get()
-                && let Some(path) = app
-                    .command_runner
-                    .lock()
-                    .unwrap()
-                    .history_path()
-                    .map(ToOwned::to_owned)
-                && path.exists()
-            {
-                let _ = std::process::Command::new("open").arg(path).spawn();
-            }
-        }
-
-        // Always show notifications even when the app is active (menu bar app)
-        #[unsafe(method(userNotificationCenter:shouldPresentNotification:))]
-        fn should_present(&self, _center: &AnyObject, _notification: &AnyObject) -> bool {
-            true
-        }
-    }
-);
-
-impl NotifDelegate {
-    pub fn new(_mtm: MainThreadMarker) -> Retained<Self> {
-        let cls = Self::class();
-        unsafe { objc2::msg_send![cls, new] }
-    }
-}
-
-/// Set up native notification delivery with the app's icon and click-to-view-history.
-/// Must be called on the main thread after GLOBAL_APP is set.
-pub fn setup_notification_center(mtm: MainThreadMarker) {
-    unsafe {
-        let Some(center_class) = AnyClass::get(c"NSUserNotificationCenter") else {
-            warn!("NSUserNotificationCenter not available");
-            return;
-        };
-        let Some(center): Option<Retained<AnyObject>> =
-            objc2::msg_send![center_class, defaultUserNotificationCenter]
-        else {
-            warn!("NSUserNotificationCenter unavailable for this process");
-            return;
-        };
-        let delegate = NotifDelegate::new(mtm);
-        let _: () = objc2::msg_send![&center, setDelegate: &*delegate];
-        // Delegate must stay alive for the app lifetime; intentional leak for singleton
-        std::mem::forget(delegate);
-    }
-    info!("Native notification center configured");
-}
-
-/// Send a native macOS notification using NSUserNotificationCenter.
-/// Shows the app's icon and supports the "Show" action button.
-pub fn send_notification(title: &str, body: &str) {
-    deliver_notification(title, body, None, "View History");
-}
-
-pub fn send_login_notification(body: &str) {
-    let details = objc2_foundation::NSDictionary::from_slices(
-        &[objc2_foundation::ns_string!("loginItems")],
-        &[objc2_foundation::ns_string!("true")],
-    );
-    deliver_notification("Start at Login", body, Some(&details), "Open Settings");
-}
-
-pub fn send_tunnel_failure(name: &str, failure: &TunnelFailure) {
-    let name_ns = NSString::from_str(name);
-    let command_ns = NSString::from_str(&failure.command_line);
-    let path_ns = NSString::from_str(&failure.env_path);
-    let logs_ns = NSString::from_str(&failure.logs());
-    let details = objc2_foundation::NSDictionary::from_slices(
-        &[
-            objc2_foundation::ns_string!("tunnelName"),
-            objc2_foundation::ns_string!("command"),
-            objc2_foundation::ns_string!("path"),
-            objc2_foundation::ns_string!("logs"),
-        ],
-        &[&*name_ns, &*command_ns, &*path_ns, &*logs_ns],
-    );
-    deliver_notification(
-        &format!("{name} — Faulty"),
-        "Connection failed. View Details to inspect and copy the command and error logs.",
-        Some(&details),
-        "View Details",
-    );
-}
-
-fn deliver_notification(
-    title: &str,
-    body: &str,
-    details: Option<&objc2_foundation::NSDictionary<NSString, NSString>>,
-    action: &str,
-) {
-    unsafe {
-        let Some(center_class) = AnyClass::get(c"NSUserNotificationCenter") else {
-            warn!("NSUserNotificationCenter class not available");
-            return;
-        };
-        let Some(center): Option<Retained<AnyObject>> =
-            objc2::msg_send![center_class, defaultUserNotificationCenter]
-        else {
-            warn!("NSUserNotificationCenter unavailable for this process");
-            return;
-        };
-
-        let Some(notif_class) = AnyClass::get(c"NSUserNotification") else {
-            warn!("NSUserNotification class not available");
-            return;
-        };
-        let notif: Retained<AnyObject> = objc2::msg_send![notif_class, new];
-
-        let title_ns = NSString::from_str(title);
-        let body_ns = NSString::from_str(body);
-        let action_ns = NSString::from_str(action);
-        if let Some(details) = details {
-            let _: () = objc2::msg_send![&notif, setUserInfo: details];
-        }
-        let _: () = objc2::msg_send![&notif, setHasActionButton: true];
-
-        let _: () = objc2::msg_send![&notif, setTitle: &*title_ns];
-        let _: () = objc2::msg_send![&notif, setInformativeText: &*body_ns];
-        let _: () = objc2::msg_send![&notif, setActionButtonTitle: &*action_ns];
-        let _: () = objc2::msg_send![&center, deliverNotification: &*notif];
-    }
-}
+pub use crate::notifications::{
+    send_login_notification, send_notification, send_tunnel_failure, setup_notification_center,
+};

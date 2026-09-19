@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.16.0
+
+**Release Date:** September 19, 2026
+
+- Fix missing notifications after signing back into macOS.
+- The app icon now centers the striped rectangle, with its badge at the upper-right corner.
+
 ## v1.15.2
 
 **Release Date:** September 19, 2026
