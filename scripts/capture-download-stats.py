@@ -17,6 +17,22 @@ FIELDS = ["date", "interval_start", "interval_end", "version", "os", "downloads"
 OS_STYLES = [("macos", "macOS", "#0969da", ""),
              ("linux", "Linux", "#9a6700", "8 4"),
              ("windows", "Windows", "#8250df", "2 4")]
+VERSION_COLORS = ["#0969da", "#9a6700", "#8250df", "#1a7f37", "#cf222e"]
+VERSION_DASHES = ["", "8 4", "2 4", "10 3 2 3", "4 3"]
+
+
+def latest_versions(assets):
+    """Select five distinct release tags by numeric version, including patches."""
+    versions = {}
+    for asset in assets:
+        version = asset["version"]
+        match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?", version)
+        if match:
+            major, minor, patch, prerelease = match.groups()
+            identifiers = tuple((0, int(part)) if part.isdigit() else (1, part)
+                                for part in prerelease.split(".")) if prerelease else ()
+            versions[version] = (int(major), int(minor), int(patch), prerelease is None, identifiers)
+    return sorted(versions, key=lambda version: (versions[version], version), reverse=True)[:5]
 
 
 def timestamp(value):
@@ -101,30 +117,39 @@ def interval_rows(previous, current):
     return rows
 
 
-def daily_series(rows, first_date, last_date):
-    """Sum releases per OS, retaining unknown days rather than partial totals."""
+def daily_series(rows, first_date, last_date, *, group_by="os", keys=None):
+    """Sum by OS or version, retaining unknown days rather than partial totals."""
+    if keys is None:
+        keys = [os_name for os_name, _, _, _ in OS_STYLES]
     end = date.fromisoformat(last_date)
     start = max(date.fromisoformat(first_date), end - timedelta(days=59))
     dates = [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
     groups = {}
     for row in rows:
-        groups.setdefault((row["date"], row["os"]), []).append(row)
+        groups.setdefault((row["date"], row[group_by]), []).append(row)
     series = {}
-    for os_name, _, _, _ in OS_STYLES:
+    for key in keys:
         values = []
         for day in dates:
-            observations = groups.get((day, os_name), [])
+            observations = groups.get((day, key), [])
             known = observations and all(row["status"] == "ok" and row["downloads"] != ""
                                          for row in observations)
             values.append(sum(int(row["downloads"]) for row in observations) if known else None)
-        series[os_name] = values
+        series[key] = values
     return dates, series
 
 
-def render_chart(output, rows, first_date, last_date):
+def render_chart(output, rows, first_date, last_date, *, versions=None):
     """Create a self-contained SVG for GitHub's native Markdown image support."""
-    dates, series = daily_series(rows, first_date, last_date)
-    svg = ET.Element("svg", {"xmlns": "http://www.w3.org/2000/svg", "viewBox": "0 0 960 440",
+    by_version = versions is not None
+    group_by = "version" if by_version else "os"
+    dates, series = daily_series(rows, first_date, last_date, group_by=group_by, keys=versions)
+    styles = [(version, version, color, dash)
+              for version, color, dash in zip(versions, VERSION_COLORS, VERSION_DASHES)] if by_version else OS_STYLES
+    title = "Daily downloads by version · Latest 5" if by_version else "Daily downloads by OS"
+    scope = "All operating systems" if by_version else "All releases"
+    filename = "daily-downloads-by-version.svg" if by_version else "daily-downloads.svg"
+    svg = ET.Element("svg", {"xmlns": "http://www.w3.org/2000/svg",
                              "role": "img", "aria-labelledby": "title description"})
 
     def element(tag, text=None, **attrs):
@@ -132,28 +157,35 @@ def render_chart(output, rows, first_date, last_date):
         node.text = text
         return node
 
-    element("title", "Daily downloads by OS", id="title")
-    element("desc", "Downloads across all releases by UTC snapshot date. Unknown counts and "
+    element("title", title, id="title")
+    element("desc", f"Downloads across {scope.lower()} by UTC snapshot date. Unknown counts and "
             "multi-day intervals are gaps, not zero downloads.", id="description")
-    element("rect", width=960, height=440, rx=12, fill="#ffffff")
+    background = element("rect", width=960, rx=12, fill="#ffffff")
 
     def label(text, x, y, size=12, **attrs):
         return element("text", text, x=x, y=y, fill="#24292f", font_family="sans-serif",
                        font_size=size, **attrs)
 
-    label("Daily downloads by OS", 28, 34, 22, font_weight=600)
-    label(f"{dates[0]} to {dates[-1]} · All releases · UTC snapshot dates", 28, 58)
-    for index, (os_name, name, color, dash) in enumerate(OS_STYLES):
-        x = 600 + index * 114
-        element("line", x1=x, y1=30, x2=x + 26, y2=30, stroke=color,
+    label(title, 28, 34, 22, font_weight=600)
+    label(f"{dates[0]} to {dates[-1]} · {scope} · UTC snapshot dates", 28, 58)
+    x, legend_y = 28, 84
+    for _, name, color, dash in styles:
+        width = max(114, 52 + len(name) * 7)
+        if x + width > 932 and x > 28:
+            x, legend_y = 28, legend_y + 24
+        element("line", x1=x, y1=legend_y - 4, x2=x + 26, y2=legend_y - 4, stroke=color,
                 stroke_width=3, stroke_dasharray=dash or "none")
-        label(name, x + 32, 34)
+        label(name, x + 32, legend_y)
+        x += width
 
     known_values = [value for values in series.values() for value in values if value is not None]
     maximum = max(known_values, default=0)
     step = max(1, (maximum + 3) // 4)
     ceiling = step * 4
-    left, right, top, bottom = 72, 912, 104, 344
+    left, right, top, bottom = 72, 912, legend_y + 44, legend_y + 284
+    height = bottom + 96
+    svg.set("viewBox", f"0 0 960 {height}")
+    background.set("height", str(height))
 
     def point(index, value):
         x = (left + right) / 2 if len(dates) == 1 else left + index * (right - left) / (len(dates) - 1)
@@ -170,10 +202,10 @@ def render_chart(output, rows, first_date, last_date):
         x, _ = point(index, 0)
         label(dates[index], x, bottom + 24, text_anchor="middle")
 
-    for os_name, name, color, dash in OS_STYLES:
+    for key, name, color, dash in styles:
         commands = []
         connected = False
-        for index, value in enumerate(series[os_name]):
+        for index, value in enumerate(series[key]):
             if value is None:
                 connected = False
                 continue
@@ -181,8 +213,8 @@ def render_chart(output, rows, first_date, last_date):
             commands.append(f"{'L' if connected else 'M'} {x:.2f} {y:.2f}")
             connected = True
         element("path", d=" ".join(commands), fill="none", stroke=color,
-                stroke_width=2.5, stroke_dasharray=dash or "none", data_os=os_name)
-        for index, value in enumerate(series[os_name]):
+                stroke_width=2.5, stroke_dasharray=dash or "none", **{f"data_{group_by}": key})
+        for index, value in enumerate(series[key]):
             if value is None:
                 continue
             x, y = point(index, value)
@@ -191,11 +223,11 @@ def render_chart(output, rows, first_date, last_date):
             ET.SubElement(marker, "title").text = f"{dates[index]} · {name}: {value} downloads"
 
     if not known_values:
-        label("Waiting for consecutive daily snapshots with known counts", 492, 222, 16,
+        label("Waiting for consecutive daily snapshots with known counts", 492, (top + bottom) / 2, 16,
               text_anchor="middle")
     label("Gaps = unknown counts or missed days. Points show downloads since the previous daily snapshot.",
-          28, 406)
-    ET.ElementTree(svg).write(output / "daily-downloads.svg", encoding="utf-8", xml_declaration=True)
+          28, height - 34)
+    ET.ElementTree(svg).write(output / filename, encoding="utf-8", xml_declaration=True)
 
 
 def render_reports(output):
@@ -213,11 +245,17 @@ def render_reports(output):
         writer.writerows(rows)
 
     render_chart(output, rows, snapshots[0]["captured_at"][:10], snapshots[-1]["captured_at"][:10])
+    render_chart(output, rows, snapshots[0]["captured_at"][:10], snapshots[-1]["captured_at"][:10],
+                 versions=latest_versions(snapshots[-1]["assets"]))
     report = [
         "# Download statistics", "",
         "![Daily downloads by OS over the latest 60 days](daily-downloads.svg)", "",
         "The chart sums all releases per OS over the latest 60 calendar days. "
         "Unknown counts and multi-day intervals appear as gaps, not zeros.", "",
+        "![Daily downloads for the latest five versions](daily-downloads-by-version.svg)", "",
+        "The version chart sums all operating systems for the five highest semantic versions "
+        "in the latest snapshot, including minor, patch, and prerelease tags. "
+        "Days before a version was observed and unknown intervals appear as gaps.", "",
         f"Latest snapshot: {snapshots[-1]['captured_at']} (UTC).", "",
         "Counts cover downloads between snapshots, not unique users or exact calendar days. "
         "The first snapshot is a baseline; no earlier download history is available.", "",

@@ -319,11 +319,16 @@ The first run creates the `download-stats` branch with:
 
 - `snapshots/YYYY-MM-DD.json`: cumulative counters by asset ID, OS, and release tag.
 - `daily.csv`: increases between snapshots, grouped by OS and app version.
-- `REPORT.md`: a daily downloads trend chart by OS at the top, followed by the latest
-  60 snapshot dates in a readable table. Both also appear in the workflow summary.
+- `REPORT.md`: daily downloads trend charts by OS and then by the latest five versions,
+  followed by the latest 60 snapshot dates in a readable table. All also appear in
+  the workflow summary.
 - `daily-downloads.svg`: the chart embedded using native GitHub Markdown image support,
   covering the latest 60 calendar days and combining all releases per OS. Unknown
   counts and multi-day intervals appear as gaps instead of zeros.
+- `daily-downloads-by-version.svg`: the same daily window, summed across operating
+  systems for the five highest semantic versions in the latest snapshot. Minor,
+  patch, and prerelease tags remain separate; dates before a version was observed
+  and unknown intervals appear as gaps.
 
 View the [download report](https://github.com/vim-zz/something_bg/blob/download-stats/REPORT.md)
 after the first run. Collection uses the workflow's built-in `GITHUB_TOKEN` with
