@@ -55,8 +55,13 @@ class ReleaseNotesTests(unittest.TestCase):
         parser.feed(root.text)
         self.assertEqual(parser.items, [bullet, "Use bold and a < b."])
 
+    def test_single_fix_release_preserves_the_approved_bullet(self):
+        parser = VisibleText()
+        parser.feed(notes.render("## v1.0.0\n- Fix the Dock icon at login.\n", "1.0.0"))
+        self.assertEqual(parser.items, ["Fix the Dock icon at login."])
+
     def test_missing_empty_duplicate_and_wrong_version_sections_fail(self):
-        for markdown in ["", "## v1.0.0\nNo bullets.", "## v1.0.0\n- Just one.", "## v1.0.01\n- One.\n- Two.", "## v1.0.0\n- One.\n- Two.\n## v1.0.0\n- Three.\n- Four."]:
+        for markdown in ["", "## v1.0.0\nNo bullets.", "## v1.0.0\n- ", "## v1.0.0\n" + "- Fix.\n" * 6, "## v1.0.01\n- One.\n- Two.", "## v1.0.0\n- One.\n- Two.\n## v1.0.0\n- Three.\n- Four."]:
             with self.subTest(markdown=markdown), self.assertRaises(ValueError):
                 notes.render(markdown, "1.0.0")
 

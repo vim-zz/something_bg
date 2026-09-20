@@ -5,7 +5,7 @@
 // look up the instance of `App` easily. Alternatively, you can store the `App` reference
 // inside the Objective-C handler class.
 
-use log::info;
+use log::{info, warn};
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use objc2_foundation::{MainThreadMarker, NSNotificationCenter};
 use std::sync::OnceLock;
@@ -28,6 +28,14 @@ use app::App;
 // global state to an Objective-C selector.
 pub static GLOBAL_APP: OnceLock<app::App> = OnceLock::new();
 
+pub fn apply_menu_bar_activation_policy(mtm: MainThreadMarker) {
+    if !NSApplication::sharedApplication(mtm)
+        .setActivationPolicy(NSApplicationActivationPolicy::Accessory)
+    {
+        warn!("Could not apply menu bar activation policy");
+    }
+}
+
 pub fn application_will_terminate_handler() {
     info!("Application is terminating; cleaning up tunnels...");
     if let Some(app) = GLOBAL_APP.get() {
@@ -46,7 +54,7 @@ fn main() {
 
     // 3. Cocoa setup
     let app = NSApplication::sharedApplication(mtm);
-    app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    apply_menu_bar_activation_policy(mtm);
 
     // 4. Create the handler (Objective-C class) for menu events
     let handler = menu::MenuHandler::new(mtm);

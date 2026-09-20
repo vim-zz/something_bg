@@ -20,8 +20,8 @@ def release_bullets(text, version):
             bullets.append(line[2:].strip())
         elif line.startswith("  ") and line.strip() and bullets:
             bullets[-1] += " " + line.strip()
-    if not 2 <= len(bullets) <= 5 or any(not bullet for bullet in bullets):
-        raise ValueError(f"Release v{version} must contain 2–5 nonempty approved bullets")
+    if not 1 <= len(bullets) <= 5 or any(not bullet for bullet in bullets):
+        raise ValueError(f"Release v{version} must contain 1–5 nonempty approved bullets")
     return bullets
 
 

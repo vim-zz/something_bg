@@ -1,0 +1,4 @@
+<!-- Merged into the bundle's Info.plist by cargo-bundle. Declare the app as
+     an agent before loginwindow launches it, without waiting for Rust startup. -->
+<key>LSUIElement</key>
+<true/>

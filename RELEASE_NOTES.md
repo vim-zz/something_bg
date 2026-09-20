@@ -1,5 +1,11 @@
 # Release Notes - Something in the Background
 
+## v1.17.1
+
+**Release Date:** September 20, 2026
+
+- Fix the Dock icon appearing when the macOS menu bar app starts automatically at login.
+
 ## v1.17.0
 
 **Release Date:** September 19, 2026

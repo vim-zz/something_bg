@@ -116,6 +116,8 @@ define_class!(
 
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn application_did_finish_launching(&self, _notification: &NSObject) {
+            // Reassert the policy after AppKit completes launch, including login startup.
+            crate::apply_menu_bar_activation_policy(self.mtm());
             if let Some(app) = GLOBAL_APP.get()
                 && let Err(error) = app.apply_login_preference() {
                 warn!("Could not apply Start at Login: {error}");

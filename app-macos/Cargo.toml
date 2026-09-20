@@ -10,6 +10,7 @@ icon = ["../resources/AppIcon.icns"]
 identifier = "com.vim-zz.something-bg"
 name = "Something in the Background"
 resources = ["../resources/*.png", "../resources/images/*.png"]
+osx_info_plist_exts = ["Info.plist.ext"]
 
 # Explicit bin-specific override so cargo-bundle names the .app correctly.
 [package.metadata.bundle.bin.something_bg]
