@@ -14,11 +14,18 @@ use objc2_foundation::{
 };
 use objc2_user_notifications::*;
 use something_bg_core::tunnel::TunnelFailure;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-#[derive(Debug, PartialEq, Eq)]
+const UPDATE_NOTIFICATION_ID: &str = "software-update";
+// Invalidate an outstanding authorization callback when the user opens or
+// dismisses the updater, so a late callback cannot repost a stale reminder.
+static UPDATE_NOTIFICATION_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Destination {
     History,
     LoginSettings,
+    Update,
     Failure {
         name: String,
         command: String,
@@ -34,6 +41,7 @@ impl Destination {
         match self {
             Self::History => "command-history",
             Self::LoginSettings => "login-settings",
+            Self::Update => "software-update",
             Self::Failure { .. } => "failure-details",
         }
     }
@@ -42,6 +50,7 @@ impl Destination {
         let pairs: Vec<(&str, &str)> = match self {
             Self::History => vec![],
             Self::LoginSettings => vec![("loginItems", "true")],
+            Self::Update => vec![("softwareUpdate", "true")],
             Self::Failure {
                 name,
                 command,
@@ -90,6 +99,9 @@ impl Destination {
                 .objectForKey(&NSString::from_str(key))
                 .and_then(|value| value.downcast_ref::<NSString>().map(ToString::to_string))
         };
+        if string("softwareUpdate").as_deref() == Some("true") {
+            return Self::Update;
+        }
         if string("loginItems").is_some() {
             return Self::LoginSettings;
         }
@@ -113,6 +125,11 @@ impl Destination {
         // UserNotifications invokes its delegate on a background queue. AppKit
         // windows and Login Items settings must be handled on the main thread.
         DispatchQueue::main().exec_async(move || match self {
+            Self::Update => {
+                if let Err(error) = crate::updater::check_for_updates() {
+                    warn!("Could not open update window: {error}");
+                }
+            }
             Self::LoginSettings => {
                 if let Err(error) = crate::login_item::open_settings() {
                     warn!("Could not open Login Items settings: {error}");
@@ -211,6 +228,7 @@ pub fn setup_notification_center(_mtm: MainThreadMarker) {
         ("command-history", "View History"),
         ("failure-details", "View Details"),
         ("login-settings", "Open Settings"),
+        ("software-update", "View Update"),
     ]
     .into_iter()
     .map(|(identifier, label)| {
@@ -242,6 +260,25 @@ pub fn send_notification(title: &str, body: &str) {
 
 pub fn send_login_notification(body: &str) {
     deliver_notification("Start at Login", body, Destination::LoginSettings);
+}
+
+pub fn send_update_notification(version: &str) {
+    deliver_notification(
+        "Update Available",
+        &format!(
+            "Version {version} is available. View the update to see what’s new and install it."
+        ),
+        Destination::Update,
+    );
+}
+
+pub fn clear_update_notification() {
+    UPDATE_NOTIFICATION_GENERATION.fetch_add(1, Ordering::SeqCst);
+    if let Some(center) = center() {
+        let identifiers = NSArray::from_slice(&[&*NSString::from_str(UPDATE_NOTIFICATION_ID)]);
+        center.removePendingNotificationRequestsWithIdentifiers(&identifiers);
+        center.removeDeliveredNotificationsWithIdentifiers(&identifiers);
+    }
 }
 
 pub fn send_tunnel_failure(name: &str, failure: &TunnelFailure) {
@@ -284,18 +321,22 @@ fn make_request(
     unsafe {
         content.setUserInfo(&destination.details());
     }
-    UNNotificationRequest::requestWithIdentifier_content_trigger(
-        &NSUUID::UUID().UUIDString(),
-        &content,
-        None,
-    )
+    let identifier = if matches!(destination, Destination::Update) {
+        NSString::from_str(UPDATE_NOTIFICATION_ID)
+    } else {
+        NSUUID::UUID().UUIDString()
+    };
+    UNNotificationRequest::requestWithIdentifier_content_trigger(&identifier, &content, None)
 }
 
 fn deliver_notification(title: &str, body: &str, destination: Destination) {
     let Some(center) = center() else {
         return;
     };
-    let request = make_request(title, body, &destination);
+    let title = title.to_owned();
+    let body = body.to_owned();
+    let update_generation = matches!(destination, Destination::Update)
+        .then(|| UPDATE_NOTIFICATION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1);
     // Wait for authorization before submitting, including the user's first alert.
     // Once decided, macOS returns the existing permission without another prompt.
     let authorization = RcBlock::new(move |granted: Bool, error: *mut NSError| {
@@ -307,21 +348,37 @@ fn deliver_notification(title: &str, body: &str, destination: Destination) {
             warn!("Notifications are disabled in macOS settings");
             return;
         }
-        let identifier = request.identifier().to_string();
-        let completion = RcBlock::new(move |error: *mut NSError| {
-            if let Some(error) = unsafe { error.as_ref() } {
-                warn!("Notification {identifier} failed: {error}");
-            } else {
-                info!("Notification {identifier} submitted");
+        let title = title.clone();
+        let body = body.clone();
+        let destination = destination.clone();
+        // Serialize submission with updater attention/dismissal on the main
+        // thread, including when permission was granted after the user clicked.
+        DispatchQueue::main().exec_async(move || {
+            if update_generation.is_some_and(|generation| {
+                generation != UPDATE_NOTIFICATION_GENERATION.load(Ordering::SeqCst)
+            }) {
+                return;
             }
+            submit_notification(&make_request(&title, &body, &destination));
         });
-        UNUserNotificationCenter::currentNotificationCenter()
-            .addNotificationRequest_withCompletionHandler(&request, Some(&completion));
     });
     center.requestAuthorizationWithOptions_completionHandler(
         UNAuthorizationOptions::Alert,
         &authorization,
     );
+}
+
+fn submit_notification(request: &UNNotificationRequest) {
+    let identifier = request.identifier().to_string();
+    let completion = RcBlock::new(move |error: *mut NSError| {
+        if let Some(error) = unsafe { error.as_ref() } {
+            warn!("Notification {identifier} failed: {error}");
+        } else {
+            info!("Notification {identifier} submitted");
+        }
+    });
+    UNUserNotificationCenter::currentNotificationCenter()
+        .addNotificationRequest_withCompletionHandler(request, Some(&completion));
 }
 
 #[cfg(test)]
@@ -374,6 +431,25 @@ mod tests {
                 destination
             );
         }
+    }
+
+    #[test]
+    fn update_reminder_replaces_previous_version_and_routes_to_updater() {
+        let first = make_request("Update Available", "Version 1.17.1", &Destination::Update);
+        let second = make_request("Update Available", "Version 1.17.2", &Destination::Update);
+        assert_eq!(first.identifier(), second.identifier());
+        assert_eq!(second.identifier().to_string(), UPDATE_NOTIFICATION_ID);
+        assert_eq!(
+            Destination::from_details(&second.content().userInfo()),
+            Destination::Update
+        );
+        assert_eq!(
+            second.content().categoryIdentifier().to_string(),
+            "software-update"
+        );
+        assert!(second.trigger().is_none());
+        let history = make_request("Completed", "Command completed", &Destination::History);
+        assert_ne!(second.identifier(), history.identifier());
     }
 
     #[test]

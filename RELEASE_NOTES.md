@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.17.2
+
+**Release Date:** September 20, 2026
+
+- Change the updates behavior so available updates show a notification instead of opening a window.
+- Clicking the notification or “Update Available…” brings the update window to the front.
+
 ## v1.17.1
 
 **Release Date:** September 20, 2026

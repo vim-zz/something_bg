@@ -63,8 +63,8 @@ define_class!(
             _update: &NSObject,
             _immediate_focus: bool,
         ) -> bool {
-            // Take responsibility for focusing the prompt below. Sparkle's
-            // default scheduled UI can appear behind other apps for dockless apps.
+            // Keep scheduled checks quiet, including at login. A notification and
+            // the menu action let the user choose when to open the prepared alert.
             false
         }
 
@@ -72,17 +72,25 @@ define_class!(
         fn will_handle_showing_update(
             &self,
             sparkle_will_show: bool,
-            _update: &NSObject,
-            _state: &NSObject,
+            update: &NSObject,
+            state: &NSObject,
         ) {
-            if !sparkle_will_show {
-                // Sparkle has already selected a non-skipped update and prepared
-                // its alert. This focuses that existing session; it does not
-                // start another check or bypass Later / Skip Version handling.
-                if let Err(error) = check_for_updates() {
-                    log::warn!("Failed to show scheduled update: {error}");
-                }
+            let user_initiated: bool = unsafe { objc2::msg_send![state, userInitiated] };
+            if !sparkle_will_show && !user_initiated {
+                let version: Retained<NSString> =
+                    unsafe { objc2::msg_send![update, displayVersionString] };
+                crate::notifications::send_update_notification(&version.to_string());
             }
+        }
+
+        #[unsafe(method(standardUserDriverDidReceiveUserAttentionForUpdate:))]
+        fn did_receive_update_attention(&self, _update: &NSObject) {
+            crate::notifications::clear_update_notification();
+        }
+
+        #[unsafe(method(standardUserDriverWillFinishUpdateSession))]
+        fn will_finish_update_session(&self) {
+            crate::notifications::clear_update_notification();
         }
     }
 );
