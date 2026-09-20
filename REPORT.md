@@ -8,7 +8,7 @@ The chart sums all releases per OS over the latest 60 calendar days. Unknown cou
 
 The version chart sums all operating systems for the five highest semantic versions in the latest snapshot, including minor, patch, and prerelease tags. Days before a version was observed and unknown intervals appear as gaps.
 
-Latest snapshot: 2026-09-19T04:38:00Z (UTC).
+Latest snapshot: 2026-09-20T04:54:01Z (UTC).
 
 Counts cover downloads between snapshots, not unique users or exact calendar days. The first snapshot is a baseline; no earlier download history is available.
 
