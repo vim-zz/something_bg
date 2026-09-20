@@ -201,6 +201,7 @@ class DownloadStatsTests(unittest.TestCase):
     def test_capture_is_idempotent_and_reports_survive_reruns(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
+            (output / "REPORT.md").write_text("Old report")
             with patch.object(stats, "collect", return_value=snapshot(17, [asset()])) as collect:
                 stats.capture("owner/repo", output, datetime(2026, 9, 17, tzinfo=timezone.utc))
                 first = (output / "snapshots/2026-09-17.json").read_bytes()
@@ -212,7 +213,8 @@ class DownloadStatsTests(unittest.TestCase):
             with (output / "daily.csv").open(newline="") as stream:
                 rows = list(stats.csv.DictReader(stream))
             self.assertEqual([row["downloads"] for row in rows], ["", "3"])
-            report = (output / "REPORT.md").read_text()
+            report = (output / "README.md").read_text()
+            self.assertFalse((output / "REPORT.md").exists())
             self.assertIn("[daily.csv](daily.csv)", report)
             self.assertFalse(any(line.startswith("|") for line in report.splitlines()))
             self.assertIn("baseline", report)

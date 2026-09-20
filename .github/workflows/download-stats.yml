@@ -48,7 +48,8 @@ jobs:
           cd "$STATS_DIR"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add snapshots daily.csv daily-downloads.svg daily-downloads-by-version.svg REPORT.md
+          git rm --ignore-unmatch REPORT.md
+          git add snapshots daily.csv daily-downloads.svg daily-downloads-by-version.svg README.md
           if ! git diff --cached --quiet; then
             git commit -m "Capture download statistics $(date -u +%F)"
             git push origin HEAD:refs/heads/download-stats
@@ -64,4 +65,4 @@ jobs:
               -e "s|(daily-downloads-by-version.svg)|($base/raw/$commit/daily-downloads-by-version.svg)|g" \
               -e "s|(daily.csv)|($base/blob/$commit/daily.csv)|g" \
               -e "s|(snapshots/)|($base/tree/$commit/snapshots/)|g" \
-              "$STATS_DIR/REPORT.md" >> "$GITHUB_STEP_SUMMARY"
+              "$STATS_DIR/README.md" >> "$GITHUB_STEP_SUMMARY"

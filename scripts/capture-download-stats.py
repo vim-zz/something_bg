@@ -264,7 +264,8 @@ def render_reports(output):
         "All observations and exact UTC interval boundaries are in [daily.csv](daily.csv); "
         "raw asset counters are in [snapshots/](snapshots/).", "",
     ]
-    (output / "REPORT.md").write_text("\n".join(report) + "\n", encoding="utf-8")
+    (output / "README.md").write_text("\n".join(report) + "\n", encoding="utf-8")
+    (output / "REPORT.md").unlink(missing_ok=True)
 
 
 def capture(repository, output, now=None):
