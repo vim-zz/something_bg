@@ -1,0 +1,487 @@
+{
+  "schema_version": 1,
+  "repository": "vim-zz/something_bg",
+  "captured_at": "2026-09-24T04:51:15Z",
+  "assets": [
+    {
+      "id": 389492474,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.8.3",
+      "os": "windows",
+      "created_at": "2026-04-05T19:11:08Z",
+      "download_count": 6
+    },
+    {
+      "id": 389492475,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.8.3",
+      "os": "linux",
+      "created_at": "2026-04-05T19:11:08Z",
+      "download_count": 6
+    },
+    {
+      "id": 389492476,
+      "name": "something_bg-macos-universal.zip",
+      "version": "v1.8.3",
+      "os": "macos",
+      "created_at": "2026-04-05T19:11:08Z",
+      "download_count": 6
+    },
+    {
+      "id": 476582456,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.9.0",
+      "os": "linux",
+      "created_at": "2026-07-14T10:42:39Z",
+      "download_count": 2
+    },
+    {
+      "id": 476582458,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.9.0",
+      "os": "windows",
+      "created_at": "2026-07-14T10:42:39Z",
+      "download_count": 2
+    },
+    {
+      "id": 476582459,
+      "name": "something_bg-macos-universal.zip",
+      "version": "v1.9.0",
+      "os": "macos",
+      "created_at": "2026-07-14T10:42:39Z",
+      "download_count": 2
+    },
+    {
+      "id": 476619045,
+      "name": "something_bg-macos-universal.zip",
+      "version": "v1.10.0",
+      "os": "macos",
+      "created_at": "2026-07-14T11:21:38Z",
+      "download_count": 3
+    },
+    {
+      "id": 476619046,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.10.0",
+      "os": "linux",
+      "created_at": "2026-07-14T11:21:38Z",
+      "download_count": 2
+    },
+    {
+      "id": 476619048,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.10.0",
+      "os": "windows",
+      "created_at": "2026-07-14T11:21:38Z",
+      "download_count": 2
+    },
+    {
+      "id": 477022768,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.10.1",
+      "os": "windows",
+      "created_at": "2026-07-14T18:29:41Z",
+      "download_count": 2
+    },
+    {
+      "id": 477022772,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.10.1",
+      "os": "linux",
+      "created_at": "2026-07-14T18:29:41Z",
+      "download_count": 2
+    },
+    {
+      "id": 477022773,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.10.1",
+      "os": "macos",
+      "created_at": "2026-07-14T18:29:41Z",
+      "download_count": 4
+    },
+    {
+      "id": 481372734,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.11.0",
+      "os": "windows",
+      "created_at": "2026-07-18T10:27:02Z",
+      "download_count": 2
+    },
+    {
+      "id": 481372736,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.11.0",
+      "os": "macos",
+      "created_at": "2026-07-18T10:27:02Z",
+      "download_count": 4
+    },
+    {
+      "id": 481372737,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.11.0",
+      "os": "linux",
+      "created_at": "2026-07-18T10:27:02Z",
+      "download_count": 2
+    },
+    {
+      "id": 481379809,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.11.1",
+      "os": "macos",
+      "created_at": "2026-07-18T10:37:52Z",
+      "download_count": 4
+    },
+    {
+      "id": 481379810,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.11.1",
+      "os": "windows",
+      "created_at": "2026-07-18T10:37:52Z",
+      "download_count": 2
+    },
+    {
+      "id": 481379812,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.11.1",
+      "os": "linux",
+      "created_at": "2026-07-18T10:37:52Z",
+      "download_count": 2
+    },
+    {
+      "id": 481517597,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.11.2",
+      "os": "linux",
+      "created_at": "2026-07-18T14:06:34Z",
+      "download_count": 2
+    },
+    {
+      "id": 481517601,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.11.2",
+      "os": "windows",
+      "created_at": "2026-07-18T14:06:34Z",
+      "download_count": 2
+    },
+    {
+      "id": 481517604,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.11.2",
+      "os": "macos",
+      "created_at": "2026-07-18T14:06:34Z",
+      "download_count": 9
+    },
+    {
+      "id": 567441062,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.12.0",
+      "os": "windows",
+      "created_at": "2026-09-16T07:32:16Z",
+      "download_count": 2
+    },
+    {
+      "id": 567441066,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.12.0",
+      "os": "linux",
+      "created_at": "2026-09-16T07:32:16Z",
+      "download_count": 1
+    },
+    {
+      "id": 567441067,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.12.0",
+      "os": "macos",
+      "created_at": "2026-09-16T07:32:16Z",
+      "download_count": 5
+    },
+    {
+      "id": 567542190,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.13.0",
+      "os": "windows",
+      "created_at": "2026-09-16T08:35:45Z",
+      "download_count": 1
+    },
+    {
+      "id": 567542192,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.13.0",
+      "os": "linux",
+      "created_at": "2026-09-16T08:35:45Z",
+      "download_count": 1
+    },
+    {
+      "id": 567542193,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.13.0",
+      "os": "macos",
+      "created_at": "2026-09-16T08:35:45Z",
+      "download_count": 3
+    },
+    {
+      "id": 567676964,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.13.1",
+      "os": "linux",
+      "created_at": "2026-09-16T09:57:49Z",
+      "download_count": 1
+    },
+    {
+      "id": 567676965,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.13.1",
+      "os": "macos",
+      "created_at": "2026-09-16T09:57:49Z",
+      "download_count": 4
+    },
+    {
+      "id": 567676968,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.13.1",
+      "os": "windows",
+      "created_at": "2026-09-16T09:57:49Z",
+      "download_count": 1
+    },
+    {
+      "id": 570198067,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.13.2",
+      "os": "linux",
+      "created_at": "2026-09-17T12:14:38Z",
+      "download_count": 0
+    },
+    {
+      "id": 570198072,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.13.2",
+      "os": "macos",
+      "created_at": "2026-09-17T12:14:38Z",
+      "download_count": 2
+    },
+    {
+      "id": 570198074,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.13.2",
+      "os": "windows",
+      "created_at": "2026-09-17T12:14:38Z",
+      "download_count": 0
+    },
+    {
+      "id": 570432909,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.14.0",
+      "os": "macos",
+      "created_at": "2026-09-17T14:31:10Z",
+      "download_count": 4
+    },
+    {
+      "id": 570432913,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.14.0",
+      "os": "windows",
+      "created_at": "2026-09-17T14:31:10Z",
+      "download_count": 2
+    },
+    {
+      "id": 570432916,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.14.0",
+      "os": "linux",
+      "created_at": "2026-09-17T14:31:10Z",
+      "download_count": 1
+    },
+    {
+      "id": 570659834,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.14.1",
+      "os": "windows",
+      "created_at": "2026-09-17T16:46:48Z",
+      "download_count": 2
+    },
+    {
+      "id": 570659835,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.14.1",
+      "os": "linux",
+      "created_at": "2026-09-17T16:46:48Z",
+      "download_count": 1
+    },
+    {
+      "id": 570659838,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.14.1",
+      "os": "macos",
+      "created_at": "2026-09-17T16:46:48Z",
+      "download_count": 4
+    },
+    {
+      "id": 572401734,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.15.0",
+      "os": "linux",
+      "created_at": "2026-09-18T10:36:04Z",
+      "download_count": 0
+    },
+    {
+      "id": 572401735,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.15.0",
+      "os": "macos",
+      "created_at": "2026-09-18T10:36:04Z",
+      "download_count": 4
+    },
+    {
+      "id": 572401736,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.15.0",
+      "os": "windows",
+      "created_at": "2026-09-18T10:36:04Z",
+      "download_count": 0
+    },
+    {
+      "id": 573315114,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.15.1",
+      "os": "linux",
+      "created_at": "2026-09-18T19:37:40Z",
+      "download_count": 0
+    },
+    {
+      "id": 573315115,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.15.1",
+      "os": "windows",
+      "created_at": "2026-09-18T19:37:40Z",
+      "download_count": 0
+    },
+    {
+      "id": 573315118,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.15.1",
+      "os": "macos",
+      "created_at": "2026-09-18T19:37:40Z",
+      "download_count": 5
+    },
+    {
+      "id": 574222189,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.15.2",
+      "os": "linux",
+      "created_at": "2026-09-19T06:21:30Z",
+      "download_count": 0
+    },
+    {
+      "id": 574222193,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.15.2",
+      "os": "macos",
+      "created_at": "2026-09-19T06:21:31Z",
+      "download_count": 3
+    },
+    {
+      "id": 574222194,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.15.2",
+      "os": "windows",
+      "created_at": "2026-09-19T06:21:31Z",
+      "download_count": 0
+    },
+    {
+      "id": 574396144,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.16.0",
+      "os": "linux",
+      "created_at": "2026-09-19T08:31:15Z",
+      "download_count": 0
+    },
+    {
+      "id": 574396146,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.16.0",
+      "os": "macos",
+      "created_at": "2026-09-19T08:31:15Z",
+      "download_count": 3
+    },
+    {
+      "id": 574396148,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.16.0",
+      "os": "windows",
+      "created_at": "2026-09-19T08:31:15Z",
+      "download_count": 0
+    },
+    {
+      "id": 574867603,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.17.0",
+      "os": "windows",
+      "created_at": "2026-09-19T13:59:58Z",
+      "download_count": 0
+    },
+    {
+      "id": 574867605,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.17.0",
+      "os": "macos",
+      "created_at": "2026-09-19T13:59:58Z",
+      "download_count": 3
+    },
+    {
+      "id": 574867606,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.17.0",
+      "os": "linux",
+      "created_at": "2026-09-19T13:59:58Z",
+      "download_count": 0
+    },
+    {
+      "id": 576288014,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.17.1",
+      "os": "windows",
+      "created_at": "2026-09-20T06:39:16Z",
+      "download_count": 0
+    },
+    {
+      "id": 576288017,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.17.1",
+      "os": "linux",
+      "created_at": "2026-09-20T06:39:16Z",
+      "download_count": 0
+    },
+    {
+      "id": 576288021,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.17.1",
+      "os": "macos",
+      "created_at": "2026-09-20T06:39:16Z",
+      "download_count": 3
+    },
+    {
+      "id": 577000726,
+      "name": "something_bg-windows-x86_64-pc-windows-msvc.zip",
+      "version": "v1.17.2",
+      "os": "windows",
+      "created_at": "2026-09-20T14:56:43Z",
+      "download_count": 0
+    },
+    {
+      "id": 577000727,
+      "name": "something_bg-macos-arm64.zip",
+      "version": "v1.17.2",
+      "os": "macos",
+      "created_at": "2026-09-20T14:56:43Z",
+      "download_count": 3
+    },
+    {
+      "id": 577000730,
+      "name": "something_bg-linux-x86_64-unknown-linux-gnu.tar.gz",
+      "version": "v1.17.2",
+      "os": "linux",
+      "created_at": "2026-09-20T14:56:43Z",
+      "download_count": 0
+    }
+  ]
+}
