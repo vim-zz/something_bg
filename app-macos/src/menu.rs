@@ -86,8 +86,8 @@ define_class!(
                     if let Some(menu) = status.menu(mtm) { refresh_connection_items(&menu); }
                 }
                 for (key, failure) in app.tunnel_manager.take_failures() {
-                    let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or(key);
-                    crate::app::send_tunnel_failure(&name, &failure);
+                    let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or_else(|| key.clone());
+                    crate::app::send_tunnel_failure(&key, &name, &failure);
                 }
             }
         }
@@ -98,8 +98,8 @@ define_class!(
                 let key = extract_nsstring_from_object(&key);
                 if let Some(app) = GLOBAL_APP.get()
                     && let Some(failure) = app.tunnel_manager.failure(&key) {
-                    let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or(key);
-                    crate::connection_details::show(&name, &failure.command_line, &failure.env_path, &failure.error_logs(), Some(&failure.start_time_label()), Some(&failure.failure_time_label()));
+                    let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or_else(|| key.clone());
+                    crate::connection_details::show(&name, &failure.command_line, &failure.env_path, &failure.error_logs(), Some(&failure.start_time_label()), Some(&failure.failure_time_label()), Some(&key));
                 }
             }
         }
@@ -392,6 +392,32 @@ fn toggle_tunnel_handler(item: &NSMenuItem) {
             }
         }
     }
+}
+
+/// Retry is always a start request, even if an old error window outlives a restart.
+pub(crate) fn retry_connection(key: &str) -> Result<(), String> {
+    let app = GLOBAL_APP
+        .get()
+        .ok_or("The application is not ready yet.")?;
+    if !app
+        .tunnel_manager
+        .commands_config
+        .lock()
+        .unwrap()
+        .contains_key(key)
+    {
+        return Err("This connection is no longer configured. Check your settings.".to_owned());
+    }
+    app.tunnel_manager.toggle(key, true);
+    if let Some(status_item) = app.get_status_item()
+        && let Some(mtm) = MainThreadMarker::new()
+    {
+        update_status_item(&status_item, mtm);
+        if let Some(menu) = status_item.menu(mtm) {
+            refresh_connection_items(&menu);
+        }
+    }
+    Ok(())
 }
 
 /// Handler to disconnect all active tunnels
@@ -878,6 +904,15 @@ fn create_header_item(
     if let Some(icon) = icon_spec {
         if let Some(image) = load_icon(icon) {
             item.setImage(Some(&image));
+            // macOS 27 hides menu images by default. Keep configured section
+            // icons visible, while leaving older macOS versions unchanged.
+            if item.respondsToSelector(sel!(setPreferredImageVisibility:)) {
+                // SAFETY: The selector is available and takes NSMenuItemImageVisibility
+                // (NSInteger); 1 is NSMenuItemImageVisibilityVisible.
+                unsafe {
+                    let _: () = objc2::msg_send![&*item, setPreferredImageVisibility: 1_isize];
+                }
+            }
         }
     }
 

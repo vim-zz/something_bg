@@ -614,6 +614,23 @@ mod tests {
     }
 
     #[test]
+    fn retrying_an_already_active_connection_does_not_stop_or_restart_it() {
+        let manager = active_manager();
+        assert!(manager.toggle("test", true));
+        assert!(manager.active_tunnels.lock().unwrap().contains("test"));
+        assert_eq!(manager.generations.lock().unwrap().get("test"), Some(&1));
+        assert!(manager.active_commands.lock().unwrap().contains_key("test"));
+    }
+
+    #[test]
+    fn retrying_a_removed_connection_does_not_start_it() {
+        let manager = TunnelManager::default();
+        assert!(!manager.toggle("removed", true));
+        assert!(manager.generations.lock().unwrap().is_empty());
+        assert!(manager.active_commands.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn old_failure_cannot_overwrite_new_connection() {
         let manager = active_manager();
         manager.generations.lock().unwrap().insert("test".into(), 2);

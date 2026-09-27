@@ -1,13 +1,13 @@
-//! Native, selectable connection diagnostics. No commands are executed here.
+//! Native, selectable connection diagnostics with an explicit connection retry action.
 use std::cell::RefCell;
 
 use objc2::{ClassType, MainThreadOnly, define_class, rc::Retained, sel};
 use objc2_app_kit::{
-    NSAccessibility, NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua,
-    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSBorderType, NSBox, NSBoxType,
-    NSButton, NSCellImagePosition, NSColor, NSFont, NSImage, NSPasteboard, NSPasteboardTypeString,
-    NSScrollView, NSTextAlignment, NSTextField, NSTextView, NSTitlePosition, NSView, NSWindow,
-    NSWindowStyleMask,
+    NSAccessibility, NSAlert, NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua,
+    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSBezelStyle, NSBorderType,
+    NSBox, NSBoxType, NSButton, NSCellImagePosition, NSColor, NSFont, NSImage, NSPasteboard,
+    NSPasteboardTypeString, NSScrollView, NSTextAlignment, NSTextField, NSTextView,
+    NSTitlePosition, NSView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{
     MainThreadMarker, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer,
@@ -20,6 +20,7 @@ struct DetailsWindow {
     command: String,
     path: String,
     logs: String,
+    tunnel_key: Option<String>,
 }
 
 const COPY_FEEDBACK_TAG: isize = 1;
@@ -37,6 +38,27 @@ define_class!(
     unsafe impl NSObjectProtocol for DetailsHandler {}
 
     impl DetailsHandler {
+        #[unsafe(method(retryConnection:))]
+        fn retry_connection(&self, sender: &NSButton) {
+            let target = DETAILS.with(|cell| {
+                cell.borrow().as_ref().and_then(|details| {
+                    details.tunnel_key.as_ref().map(|key| (key.clone(), details.window.clone()))
+                })
+            });
+            let Some((key, window)) = target else { return; };
+            sender.setEnabled(false);
+            match crate::menu::retry_connection(&key) {
+                Ok(()) => window.close(),
+                Err(error) => {
+                    let alert = NSAlert::new(self.mtm());
+                    alert.setMessageText(&NSString::from_str("Could Not Retry Connection"));
+                    alert.setInformativeText(&NSString::from_str(&error));
+                    alert.runModal();
+                    sender.setEnabled(true);
+                }
+            }
+        }
+
         #[unsafe(method(copyCommand:))]
         fn copy_command(&self, sender: &NSButton) {
             DETAILS.with(|cell| {
@@ -126,6 +148,7 @@ pub fn show(
     logs: &str,
     started_at: Option<&str>,
     failed_at: Option<&str>,
+    tunnel_key: Option<&str>,
 ) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
@@ -195,10 +218,28 @@ pub fn show(
         &handler,
         logs,
         ("Copy Logs", sel!(copyLogs:)),
-        rect(20.0, 20.0, 720.0, 320.0),
+        if tunnel_key.is_some() {
+            rect(20.0, 64.0, 720.0, 276.0)
+        } else {
+            rect(20.0, 20.0, 720.0, 320.0)
+        },
         true,
         &color(1.0, 0.75, 0.73),
     );
+    if tunnel_key.is_some() {
+        let retry = NSButton::initWithFrame(mtm.alloc(), rect(640.0, 16.0, 100.0, 32.0));
+        retry.setTitle(&NSString::from_str("Retry"));
+        retry.setBezelStyle(NSBezelStyle::Push);
+        retry.setToolTip(Some(&NSString::from_str(
+            "Retry this connection using its current settings",
+        )));
+        retry.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin);
+        unsafe {
+            retry.setTarget(Some(&handler));
+            retry.setAction(Some(sel!(retryConnection:)));
+        }
+        content.addSubview(&retry);
+    }
     window.center();
     DETAILS.with(|cell| {
         if let Some(previous) = cell.borrow_mut().take() {
@@ -209,6 +250,7 @@ pub fn show(
             _handler: handler,
             command: command.to_owned(),
             path: path.to_owned(),
+            tunnel_key: tunnel_key.map(str::to_owned),
             logs: [started_at, failed_at, Some(logs)]
                 .into_iter()
                 .flatten()

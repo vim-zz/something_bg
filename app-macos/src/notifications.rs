@@ -27,6 +27,7 @@ enum Destination {
     LoginSettings,
     Update,
     Failure {
+        tunnel_key: Option<String>,
         name: String,
         command: String,
         path: String,
@@ -52,6 +53,7 @@ impl Destination {
             Self::LoginSettings => vec![("loginItems", "true")],
             Self::Update => vec![("softwareUpdate", "true")],
             Self::Failure {
+                tunnel_key,
                 name,
                 command,
                 path,
@@ -70,6 +72,9 @@ impl Destination {
                 }
                 if let Some(time) = failed_at {
                     pairs.push(("failedAt", time));
+                }
+                if let Some(key) = tunnel_key {
+                    pairs.push(("tunnelKey", key));
                 }
                 pairs
                     .into_iter()
@@ -109,6 +114,7 @@ impl Destination {
             (string("tunnelName"), string("command"), string("logs"))
         {
             return Self::Failure {
+                tunnel_key: string("tunnelKey"),
                 name,
                 command,
                 logs,
@@ -136,6 +142,7 @@ impl Destination {
                 }
             }
             Self::Failure {
+                tunnel_key,
                 name,
                 command,
                 path,
@@ -150,6 +157,7 @@ impl Destination {
                     &logs,
                     started_at.as_deref(),
                     failed_at.as_deref(),
+                    tunnel_key.as_deref(),
                 );
             }
             Self::History => {
@@ -281,15 +289,20 @@ pub fn clear_update_notification() {
     }
 }
 
-pub fn send_tunnel_failure(name: &str, failure: &TunnelFailure) {
-    send_process_failure(&format!("{name} — Faulty"), name, failure);
+pub fn send_tunnel_failure(key: &str, name: &str, failure: &TunnelFailure) {
+    send_process_failure(&format!("{name} — Faulty"), name, failure, Some(key));
 }
 
 pub fn send_command_failure(name: &str, failure: &TunnelFailure) {
-    send_process_failure(&format!("{name} — Failed"), name, failure);
+    send_process_failure(&format!("{name} — Failed"), name, failure, None);
 }
 
-fn send_process_failure(title: &str, name: &str, failure: &TunnelFailure) {
+fn send_process_failure(
+    title: &str,
+    name: &str,
+    failure: &TunnelFailure,
+    tunnel_key: Option<&str>,
+) {
     deliver_notification(
         title,
         &format!(
@@ -298,6 +311,7 @@ fn send_process_failure(title: &str, name: &str, failure: &TunnelFailure) {
             failure.summary,
         ),
         Destination::Failure {
+            tunnel_key: tunnel_key.map(str::to_owned),
             name: name.to_owned(),
             command: failure.command_line.clone(),
             path: failure.env_path.clone(),
@@ -388,6 +402,7 @@ mod tests {
     #[test]
     fn failure_notification_keeps_its_original_details_after_a_retry() {
         let original = Destination::Failure {
+            tunnel_key: Some("test-connection".into()),
             name: "Test".into(),
             command: "false".into(),
             path: "/original/path".into(),
@@ -400,6 +415,7 @@ mod tests {
             "Failed",
             "Retry",
             &Destination::Failure {
+                tunnel_key: Some("test-connection".into()),
                 name: "Test".into(),
                 command: "other".into(),
                 path: "/new/path".into(),
@@ -455,6 +471,7 @@ mod tests {
     #[test]
     fn older_failure_notifications_without_timestamp_still_open_details() {
         let original = Destination::Failure {
+            tunnel_key: None,
             name: "Old failure".into(),
             command: "false".into(),
             path: "/usr/bin:/bin".into(),

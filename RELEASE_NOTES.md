@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.18.0
+
+**Release Date:** September 27, 2026
+
+- Failed connections can now be restarted directly from the error dialog with Retry.
+- Configured section icons are visible again on macOS 27.
+
 ## v1.17.2
 
 **Release Date:** September 20, 2026
