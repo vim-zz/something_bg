@@ -20,7 +20,7 @@ pub struct TunnelCommand {
     pub kill_args: Vec<String>,
 }
 
-/// Latest failed attempt, retained in memory until retry, stop, or app exit.
+/// Latest failed attempt, retained in memory until clear, retry, stop, or app exit.
 #[derive(Clone, Debug)]
 pub struct TunnelFailure {
     /// When this process launch was attempted.
@@ -278,7 +278,14 @@ impl TunnelManager {
         self.failures.lock().unwrap().get(key).cloned()
     }
 
-    /// Each current failure is delivered once. Retry/stop cancels pending delivery.
+    /// Dismiss a saved failure without starting or stopping a connection.
+    pub fn clear_failure(&self, key: &str) {
+        let _generations = self.generations.lock().unwrap();
+        self.failures.lock().unwrap().remove(key);
+        self.pending_failures.lock().unwrap().remove(key);
+    }
+
+    /// Each current failure is delivered once. Clear/retry/stop cancels pending delivery.
     pub fn take_failures(&self) -> Vec<(String, TunnelFailure)> {
         let _generations = self.generations.lock().unwrap();
         let failures = self.failures.lock().unwrap();
@@ -620,6 +627,51 @@ mod tests {
         assert!(manager.active_tunnels.lock().unwrap().contains("test"));
         assert_eq!(manager.generations.lock().unwrap().get("test"), Some(&1));
         assert!(manager.active_commands.lock().unwrap().contains_key("test"));
+    }
+
+    #[test]
+    fn clearing_failure_restores_disconnected_state_and_cancels_notification() {
+        let manager = active_manager();
+        manager.record_failure("test", 1, failure());
+        manager.clear_failure("test");
+
+        assert!(!manager.has_failure("test"));
+        assert!(manager.failure("test").is_none());
+        assert!(!manager.has_active_tunnels());
+        assert!(manager.active_commands.lock().unwrap().is_empty());
+        assert!(manager.take_failures().is_empty());
+        assert!(manager.commands_config.lock().unwrap().contains_key("test"));
+
+        // A late report from the dismissed attempt must not restore its warning.
+        manager.record_failure("test", 1, failure());
+        assert!(!manager.has_failure("test"));
+        assert!(manager.take_failures().is_empty());
+    }
+
+    #[test]
+    fn clearing_failure_leaves_other_connections_and_failures_unchanged() {
+        let manager = active_manager();
+        manager
+            .failures
+            .lock()
+            .unwrap()
+            .insert("other".into(), failure());
+        manager
+            .pending_failures
+            .lock()
+            .unwrap()
+            .insert("other".into());
+        manager.clear_failure("missing");
+        manager.clear_failure("test");
+        manager.clear_failure("test");
+
+        assert!(manager.active_tunnels.lock().unwrap().contains("test"));
+        assert!(manager.active_commands.lock().unwrap().contains_key("test"));
+        assert_eq!(manager.generations.lock().unwrap().get("test"), Some(&1));
+        assert!(manager.has_failure("other"));
+        let notifications = manager.take_failures();
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].0, "other");
     }
 
     #[test]

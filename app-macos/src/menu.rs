@@ -109,6 +109,19 @@ define_class!(
             toggle_tunnel_handler(item);
         }
 
+        #[unsafe(method(clearConnectionError:))]
+        fn clear_connection_error(&self, item: &NSMenuItem) {
+            if let Some(key) = item.representedObject()
+                && let Some(app) = GLOBAL_APP.get() {
+                let key = extract_nsstring_from_object(&key);
+                app.tunnel_manager.clear_failure(&key);
+                if let Some(status) = app.get_status_item()
+                    && let Some(menu) = status.menu(self.mtm()) {
+                    refresh_connection_items(&menu);
+                }
+            }
+        }
+
         #[unsafe(method(applicationWillTerminate:))]
         fn application_will_terminate(&self, _notification: &NSObject) {
             crate::application_will_terminate_handler();
@@ -467,7 +480,7 @@ fn connection_presentation(name: &str, active: bool, faulty: bool) -> (String, i
 }
 
 /// A native submenu takes over the parent item's click, so keep retry available
-/// alongside the diagnostics action while the connection is faulty.
+/// alongside the diagnostics and clear actions while the connection is faulty.
 fn update_connection_submenu(item: &NSMenuItem, command_id: &str, failure: Option<&TunnelFailure>) {
     let Some(failure) = failure else {
         if item.submenu().is_some() {
@@ -511,6 +524,7 @@ fn update_connection_submenu(item: &NSMenuItem, command_id: &str, failure: Optio
     for (title, action) in [
         ("Show Error…", sel!(showConnectionError:)),
         ("Retry", sel!(toggleTunnel:)),
+        ("Clear", sel!(clearConnectionError:)),
     ] {
         let action_item = create_menu_item_with_action(
             &NSString::from_str(title),
@@ -560,7 +574,7 @@ fn refresh_connection_items(menu: &NSMenu) {
                 item.setState(state);
                 update_connection_submenu(&item, &key, failure.as_ref());
                 item.setToolTip(Some(&NSString::from_str(if faulty {
-                    "Open the submenu to view the error or retry the connection."
+                    "Open the submenu to view the error, retry the connection, or clear the warning."
                 } else {
                     "Click to connect or disconnect."
                 })));

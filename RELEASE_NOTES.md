@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.19.0
+
+**Release Date:** September 28, 2026
+
+- Failed connections on macOS now include a Clear option alongside Show Error and Retry.
+- Clearing an error removes the warning and restores the normal disconnected menu item.
+
 ## v1.18.0
 
 **Release Date:** September 27, 2026
