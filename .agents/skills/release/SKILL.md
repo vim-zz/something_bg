@@ -34,8 +34,9 @@ and wait for explicit user approval of its bullets.
 1. Inspect the current version, recent commits, tags, worktree status, and the
    complete relevant diff. Infer the SemVer bump from the actual changes; do not
    change files or run commands that can write build metadata yet.
-2. Draft a release-text proposal containing exactly 2–5 concise, user-facing
-   Markdown bullets. Use the format below; the heading and date are context, but
+2. Draft a release-text proposal with one concise, single-line, user-facing
+   Markdown bullet per distinct change or feature. A single-feature release has
+   exactly one bullet; do not split that feature into multiple bullets. Use the format below; the heading and date are context, but
    the bullets are the exact text requiring approval:
 
    ```text
@@ -43,13 +44,12 @@ and wait for explicit user approval of its bullets.
 
    ## vX.Y.Z
 
-   - Approved bullet one.
-   - Approved bullet two.
+   - Approved change or feature.
    ```
 
-3. Ask explicitly: “Approve these exact 2–5 release-note bullets for vX.Y.Z?”
+3. Ask explicitly: “Approve this exact release-note text for vX.Y.Z?”
    Treat approval as applying only to the exact displayed bullets. If the user
-   changes, adds, or removes a bullet, show the revised 2–5-bullet proposal and
+   changes, adds, or removes a bullet, show the revised proposal and
    ask again.
 4. Do not modify `Cargo.toml` or `RELEASE_NOTES.md`, run `cargo fmt`, `cargo
    check`, `cargo test`, `cargo clippy`, build or bundle an artifact, commit,
@@ -57,10 +57,10 @@ and wait for explicit user approval of its bullets.
    publish a GitHub release before that exact approval. A general “go ahead” does
    not replace approval of the displayed bullets.
 
-Keep release notes concise. Do not add Upgrade Instructions or Future Plans,
-and do not invent filler bullets to reach two. If the changes do not support at
-least two meaningful bullets, ask whether to delay the release or approve a
-truthful maintenance/packaging bullet.
+Keep release notes concise: one line per distinct user-facing change or feature.
+A single-feature release needs only one bullet. Never add filler, split one
+feature into multiple bullets, or delay a release to meet a minimum bullet count.
+Do not add Upgrade Instructions or Future Plans.
 
 ## Release procedure after approval
 
@@ -93,7 +93,7 @@ For Git commands that need identity, SSH, or keychain credentials, set
   dependency resolution entries.
 - Prepend a new `## vX.Y.Z` section to `RELEASE_NOTES.md`, include the release
   date and a short category heading if useful, and copy the approved bullets
-  verbatim. Keep the new section to exactly 2–5 release-note bullets.
+  verbatim. Use one single-line bullet per approved change or feature.
 - Treat the approved release text as the source of truth for the changelog,
   GitHub Release body, and release notes shown in Sparkle's update window.
   Preserve the approved wording and order across all three; only formatting
@@ -141,7 +141,7 @@ cross-platform code. Before committing:
 - Verify the root Cargo version, lockfile workspace versions, tag version, and
   new release-notes heading all agree.
 - Count the bullets in the new release section and confirm they are exactly the
-  approved 2–5 bullets; remove any generated or unapproved text.
+  approved bullets; remove any generated or unapproved text.
 - Validate the appcast generator's output for the selected release: its rendered
   list must contain those same approved bullets. When changing the generator,
   check missing-version handling and HTML/XML escaping as well as a normal
@@ -207,7 +207,7 @@ After the workflow completes, verify the GitHub Release for the exact tag:
 - `isDraft` is `false`, the tag and title are correct, and the release is not a
   prerelease unless explicitly requested.
 - The final body contains the approved release text and exactly the approved
-  2–5 bullets. The current workflow uses `--generate-notes` when it first
+  bullets. The current workflow uses `--generate-notes` when it first
   creates a release, so explicitly replace generated notes with the approved
   body using `gh release edit --notes-file` if necessary, then re-read and
   verify the body.
@@ -236,7 +236,7 @@ HOME=/Users/ofera /opt/homebrew/bin/gh release edit "vX.Y.Z" \
   --title "vX.Y.Z" --notes-file <approved-release-body.md>
 ```
 
-The body file must contain only the approved release heading and its exact 2–5
+The body file must contain only the approved release heading and its exact approved
 bullets. Re-read the release after editing and verify that no generated notes
 or extra bullets remain.
 

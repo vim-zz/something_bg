@@ -9,8 +9,13 @@ use objc2::{
     AnyThread, ClassType, MainThreadOnly, define_class, rc::Retained, runtime::AnyObject,
     runtime::ProtocolObject, sel,
 };
-use objc2_app_kit::{NSImage, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar, NSStatusItem};
-use objc2_foundation::{MainThreadMarker, NSData, NSObject, NSObjectProtocol, NSString, ns_string};
+use objc2_app_kit::{
+    NSBezierPath, NSColor, NSImage, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar, NSStatusItem,
+};
+use objc2_foundation::{
+    MainThreadMarker, NSData, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
+    ns_string,
+};
 
 use crate::GLOBAL_APP;
 use crate::paths::MacPaths;
@@ -30,6 +35,26 @@ thread_local! {
         load_status_image(include_bytes!("../../resources/images/menubar-idle.pdf"), "No active background processes"),
         load_status_image(include_bytes!("../../resources/images/menubar-active.pdf"), "Active background processes"),
     );
+    static UPDATE_DOT: Retained<NSImage> = load_update_dot();
+}
+
+fn load_update_dot() -> Retained<NSImage> {
+    // AppKit normalizes SF Symbol sizes in menus. Draw a seven-point dot in a
+    // standard 16-point image so the transparent padding preserves its size.
+    let draw = block2::RcBlock::new(|_rect: NSRect| {
+        NSColor::systemBlueColor().setFill();
+        NSBezierPath::bezierPathWithOvalInRect(NSRect::new(
+            NSPoint::new(4.5, 4.5),
+            NSSize::new(7.0, 7.0),
+        ))
+        .fill();
+        objc2::runtime::Bool::YES
+    });
+    let image =
+        NSImage::imageWithSize_flipped_drawingHandler(NSSize::new(16.0, 16.0), false, &draw);
+    image.setTemplate(false);
+    image.setAccessibilityDescription(Some(ns_string!("Update available")));
+    image
 }
 
 fn load_status_image(bytes: &[u8], description: &str) -> Option<Retained<NSImage>> {
@@ -657,7 +682,7 @@ fn update_login_items(menu: &NSMenu) {
 
 /// Refresh the Sparkle action immediately before the status menu opens.
 fn update_check_for_updates_item(menu: &NSMenu) {
-    let (title, enabled) = crate::updater::menu_item_presentation();
+    let (title, enabled, update_available) = crate::updater::menu_item_presentation();
     let title = NSString::from_str(title);
 
     let num_items = menu.numberOfItems();
@@ -666,6 +691,17 @@ fn update_check_for_updates_item(menu: &NSMenu) {
             if item.tag() == CHECK_FOR_UPDATES_TAG {
                 item.setTitle(&title);
                 item.setEnabled(enabled);
+                UPDATE_DOT.with(|dot| {
+                    item.setImage(if update_available { Some(&**dot) } else { None });
+                });
+                // macOS 27 hides menu images by default, including update badges.
+                if item.respondsToSelector(sel!(setPreferredImageVisibility:)) {
+                    // SAFETY: The selector takes NSMenuItemImageVisibility
+                    // (NSInteger); 1 is NSMenuItemImageVisibilityVisible.
+                    unsafe {
+                        let _: () = objc2::msg_send![&*item, setPreferredImageVisibility: 1_isize];
+                    }
+                }
                 return;
             }
             if let Some(submenu) = item.submenu() {

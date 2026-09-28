@@ -18,7 +18,14 @@
 - `cargo run` — launch the debug app for manual menu/tunnel smoke tests.
 - `cargo build --release` — build optimized binaries.
 - `cargo bundle --release` — create the signed macOS bundle at `target/release/bundle/osx/Something in the Background.app` for distribution.
-- `cp -r "target/release/bundle/osx/Something in the Background.app" /Applications/` — install the bundle locally for manual verification.
+- Local previews run directly from the development bundle under `target/`; installing into `/Applications` requires explicit user approval.
+
+## Protect the Installed App
+- Never replace or modify the installed app with a development version or local build unless the user explicitly approves that installation. This includes copying over the bundle, replacing only its contents, moving it aside, or removing it in preparation for an install.
+- A request to build, run, demo, test, commit, push, or publish a release does not authorize changing the installed app.
+- For local builds and demos, build and launch the development bundle directly from `target/`. Identify the exact development instance by its executable path before restarting it.
+- Do not quit or restart the installed app for development work without explicit user approval. Preserve its running connections and keep it separate from preview instances.
+- If installation is explicitly approved, build successfully first, preserve a recoverable backup, and follow the build-install skill's installation procedure.
 
 ## Versioning & Releases
 - When work warrants a new build (user-visible changes, dependency updates, or release packaging), bump the crate version in `Cargo.toml` and update `RELEASE_NOTES.md` proactively without waiting for a prompt.
@@ -73,4 +80,5 @@
 - Keep secrets and API tokens out of the repo and app bundle; instruct users to supply them via environment variables or secure storage.
 
 ## Release Notes
+- Write one concise, single-line bullet per distinct user-facing change or feature. A release with one feature gets one bullet; do not split the same feature across multiple bullets or add filler to meet a minimum count.
 - In the Release Notes, don't include Upgrade Instructions nor Future Plans.

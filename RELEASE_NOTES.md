@@ -1,5 +1,11 @@
 # Release Notes - Something in the Background
 
+## v1.20.0
+
+**Release Date:** September 28, 2026
+
+- Available updates now show a small blue dot beside “Update Available…” in the macOS menu.
+
 ## v1.19.0
 
 **Release Date:** September 28, 2026

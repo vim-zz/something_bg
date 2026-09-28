@@ -218,11 +218,13 @@ fn appcast_has_available_update(updater: &NSObject, appcast: &NSObject) -> Optio
 
 /// Derives the status-menu presentation without duplicating updater state in
 /// the AppKit menu layer.
-pub(crate) fn menu_item_presentation() -> (&'static str, bool) {
+pub(crate) fn menu_item_presentation() -> (&'static str, bool, bool) {
+    // Opt-in local visual demo; never changes Sparkle's feed or update decisions.
+    let preview = std::env::var("SOMETHING_BG_PREVIEW_UPDATE_INDICATOR").as_deref() == Ok("1");
     menu_item_presentation_for(
-        is_available(),
+        is_available() || preview,
         can_check_for_updates(),
-        automatic_update_available(),
+        automatic_update_available() || preview,
     )
 }
 
@@ -230,13 +232,14 @@ fn menu_item_presentation_for(
     runtime_available: bool,
     can_check: bool,
     update_available: bool,
-) -> (&'static str, bool) {
-    let title = if runtime_available && update_available {
+) -> (&'static str, bool, bool) {
+    let show_indicator = runtime_available && update_available;
+    let title = if show_indicator {
         "Update Available..."
     } else {
         "Check for Updates..."
     };
-    (title, runtime_available && can_check)
+    (title, runtime_available && can_check, show_indicator)
 }
 
 fn ensure_controller(mtm: MainThreadMarker) -> Result<(), String> {
@@ -350,7 +353,7 @@ mod tests {
     fn menu_item_is_disabled_without_sparkle() {
         assert_eq!(
             menu_item_presentation_for(false, false, false),
-            ("Check for Updates...", false)
+            ("Check for Updates...", false, false)
         );
     }
 
@@ -358,7 +361,7 @@ mod tests {
     fn menu_item_allows_a_normal_manual_check() {
         assert_eq!(
             menu_item_presentation_for(true, true, false),
-            ("Check for Updates...", true)
+            ("Check for Updates...", true, false)
         );
     }
 
@@ -366,7 +369,23 @@ mod tests {
     fn menu_item_advertises_a_discovered_update() {
         assert_eq!(
             menu_item_presentation_for(true, true, true),
-            ("Update Available...", true)
+            ("Update Available...", true, true)
+        );
+    }
+
+    #[test]
+    fn update_indicator_remains_visible_while_updater_is_busy() {
+        assert_eq!(
+            menu_item_presentation_for(true, false, true),
+            ("Update Available...", false, true)
+        );
+    }
+
+    #[test]
+    fn update_indicator_is_hidden_without_a_working_updater() {
+        assert_eq!(
+            menu_item_presentation_for(false, false, true),
+            ("Check for Updates...", false, false)
         );
     }
 }

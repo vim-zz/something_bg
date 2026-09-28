@@ -1,12 +1,24 @@
 ---
 name: build-install
-description: Build the macOS app bundle, install it to /Applications, and restart the app with the installed version. Use when the user wants to build, bundle, or install the app.
+description: Build and run the macOS app locally by default. Install to /Applications and restart the installed app only when the user explicitly approves that installation. Use when the user wants to build, bundle, demo, or install the app.
 disable-model-invocation: true
 user-invocable: true
 allowed-tools: Bash
 ---
 
-Build the macOS release bundle, install it to /Applications, and finish with the installed version running. Follow these steps in sequence from the repository root:
+Build and run locally by default. A request to build, run, demo, test, commit, push, or publish a release does not authorize replacing or modifying the installed app. Do not quit the installed app, move its bundle, or replace even part of its contents unless the user explicitly approves that installation. Follow the installed-app protection rules in `AGENTS.md`.
+
+## Default: local build or demo
+
+1. Build with `./scripts/bundle-macos.sh` and run the resulting development bundle directly from `target/release/bundle/osx/Something in the Background.app` when a launch was requested.
+2. Keep development and installed instances separate. Before restarting a preview, identify it by its exact executable path; never stop the installed app as part of local testing. Build a replacement successfully before stopping the previous preview, using a separate output path if needed to avoid overwriting a running bundle.
+3. Verify the development process and requested preview state, and report the development bundle path. Do not copy anything into `/Applications` or claim a local preview is an installed update.
+
+## Installation: only after explicit approval
+
+Proceed with these steps only when the user has explicitly approved installing the local build over the installed app. If installation has not been approved, complete the local build/demo above; do not ask for installation permission merely to perform a demo.
+
+Follow these steps in sequence from the repository root:
 
 1. Record the expected version from `Cargo.toml` and identify the running app's PID, executable/bundle path, and running version when available. Distinguish installed and development copies; the executable is `something_bg`, which differs from the displayed app name. Do not use a broad process-name kill.
 2. Run `./scripts/bundle-macos.sh` — compiles and packages the app into `target/release/bundle/osx/Something in the Background.app`. Build successfully before stopping the existing app.
