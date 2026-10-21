@@ -1,5 +1,12 @@
 # Release Notes - Something in the Background
 
+## v1.21.0
+
+**Release Date:** October 21, 2026
+
+- Failed connections now show a warning-triangle badge in the macOS menu bar.
+- Added a Connections submenu with live counts for Disconnect All and Retry all failed.
+
 ## v1.20.0
 
 **Release Date:** September 28, 2026

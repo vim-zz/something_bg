@@ -278,6 +278,19 @@ impl TunnelManager {
         self.failures.lock().unwrap().get(key).cloned()
     }
 
+    pub fn failure_count(&self) -> usize {
+        self.failures.lock().unwrap().len()
+    }
+
+    /// Retry a snapshot of failures without touching healthy or idle connections.
+    pub fn retry_all_failed(&self) {
+        let keys: Vec<String> = self.failures.lock().unwrap().keys().cloned().collect();
+        info!("Retrying {} failed connection(s)", keys.len());
+        for key in keys {
+            self.toggle(&key, true);
+        }
+    }
+
     /// Dismiss a saved failure without starting or stopping a connection.
     pub fn clear_failure(&self, key: &str) {
         let _generations = self.generations.lock().unwrap();
@@ -627,6 +640,45 @@ mod tests {
         assert!(manager.active_tunnels.lock().unwrap().contains("test"));
         assert_eq!(manager.generations.lock().unwrap().get("test"), Some(&1));
         assert!(manager.active_commands.lock().unwrap().contains_key("test"));
+    }
+
+    #[test]
+    fn bulk_retry_only_starts_failed_connections_and_cancels_old_notifications() {
+        let manager = active_manager();
+        for key in ["failed-a", "failed-b", "idle", "cleared"] {
+            manager
+                .commands_config
+                .lock()
+                .unwrap()
+                .insert(key.into(), command());
+        }
+        for key in ["failed-a", "failed-b", "cleared"] {
+            manager
+                .failures
+                .lock()
+                .unwrap()
+                .insert(key.into(), failure());
+            manager.pending_failures.lock().unwrap().insert(key.into());
+        }
+        manager.clear_failure("cleared");
+        assert_eq!(manager.failure_count(), 2);
+
+        manager.retry_all_failed();
+
+        assert_eq!(manager.failure_count(), 0);
+        assert!(manager.take_failures().is_empty());
+        assert_eq!(
+            *manager.active_tunnels.lock().unwrap(),
+            HashSet::from(["test".into(), "failed-a".into(), "failed-b".into()])
+        );
+        let generations = manager.generations.lock().unwrap().clone();
+        assert_eq!(generations.get("test"), Some(&1));
+        assert!(!generations.contains_key("idle"));
+        assert!(!generations.contains_key("cleared"));
+
+        // Repeated clicks with no failures must not restart anything.
+        manager.retry_all_failed();
+        assert_eq!(*manager.generations.lock().unwrap(), generations);
     }
 
     #[test]

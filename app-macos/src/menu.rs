@@ -28,13 +28,32 @@ use something_bg_core::tunnel::TunnelFailure;
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
 const ICON_ACTIVE: &str = "●"; // Filled circle for active
+const ICON_FAILED: &str = "⚠";
+
+#[derive(Debug, PartialEq, Eq)]
+enum StatusIcon {
+    Idle,
+    Active,
+    Failed,
+}
+
+fn status_icon(active_count: usize, failed_count: usize) -> StatusIcon {
+    if failed_count > 0 {
+        StatusIcon::Failed
+    } else if active_count > 0 {
+        StatusIcon::Active
+    } else {
+        StatusIcon::Idle
+    }
+}
 
 thread_local! {
     // AppKit images stay on the menu's main thread and are decoded only once.
-    static STATUS_IMAGES: (Option<Retained<NSImage>>, Option<Retained<NSImage>>) = (
+    static STATUS_IMAGES: [Option<Retained<NSImage>>; 3] = [
         load_status_image(include_bytes!("../../resources/images/menubar-idle.pdf"), "No active background processes"),
         load_status_image(include_bytes!("../../resources/images/menubar-active.pdf"), "Active background processes"),
-    );
+        load_status_image(include_bytes!("../../resources/images/menubar-failed.pdf"), "Failed connections"),
+    ];
     static UPDATE_DOT: Retained<NSImage> = load_update_dot();
 }
 
@@ -77,6 +96,7 @@ const CONNECTION_TAG: isize = 10_002;
 const START_AT_LOGIN_TAG: isize = 10_003;
 const LOGIN_SETTINGS_TAG: isize = 10_004;
 const SCHEDULED_TASK_TAG: isize = 10_005;
+const RETRY_ALL_FAILED_TAG: isize = 10_006;
 
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
@@ -140,9 +160,11 @@ define_class!(
                 && let Some(app) = GLOBAL_APP.get() {
                 let key = extract_nsstring_from_object(&key);
                 app.tunnel_manager.clear_failure(&key);
-                if let Some(status) = app.get_status_item()
-                    && let Some(menu) = status.menu(self.mtm()) {
-                    refresh_connection_items(&menu);
+                if let Some(status) = app.get_status_item() {
+                    update_status_item(&status, self.mtm());
+                    if let Some(menu) = status.menu(self.mtm()) {
+                        refresh_connection_items(&menu);
+                    }
                 }
             }
         }
@@ -229,6 +251,19 @@ define_class!(
         #[unsafe(method(disconnectAll:))]
         fn disconnect_all(&self, _item: &NSMenuItem) {
             disconnect_all_handler();
+        }
+
+        #[unsafe(method(retryAllFailed:))]
+        fn retry_all_failed(&self, _item: &NSMenuItem) {
+            if let Some(app) = GLOBAL_APP.get() {
+                app.tunnel_manager.retry_all_failed();
+                if let Some(status) = app.get_status_item() {
+                    update_status_item(&status, self.mtm());
+                    if let Some(menu) = status.menu(self.mtm()) {
+                        refresh_connection_items(&menu);
+                    }
+                }
+            }
         }
 
         #[unsafe(method(runCommand:))]
@@ -569,12 +604,23 @@ fn refresh_connection_items(menu: &NSMenu) {
         return;
     };
     let active_count = active_background_count();
+    let failed_count = app.tunnel_manager.failure_count();
     for index in 0..menu.numberOfItems() {
         let Some(item) = menu.itemAtIndex(index) else {
             continue;
         };
         if item.tag() == DISCONNECT_ALL_TAG {
             update_disconnect_all_item(&item, active_count);
+        }
+        if item.tag() == RETRY_ALL_FAILED_TAG {
+            update_retry_all_failed_item(&item, failed_count);
+        }
+        // Bulk actions live in Connections; don't descend into diagnostics,
+        // which are rebuilt below and contain no connection status items.
+        if item.tag() != CONNECTION_TAG
+            && let Some(submenu) = item.submenu()
+        {
+            refresh_connection_items(&submenu);
         }
         if let Some(key) = item.representedObject() {
             let key = extract_nsstring_from_object(&key);
@@ -888,7 +934,12 @@ pub fn create_menu(
     settings_item.setSubmenu(Some(&settings_menu));
     menu.addItem(&settings_item);
 
-    // Add "Disconnect All" item
+    let connections_item =
+        create_menu_item_with_action(ns_string!("Connections"), None, ns_string!(""), mtm);
+    let connections_menu = NSMenu::new(mtm);
+    connections_menu.setAutoenablesItems(false);
+    connections_menu.setDelegate(Some(delegate));
+
     let disconnect_all_item = create_menu_item_with_action(
         ns_string!("Disconnect All"),
         Some(sel!(disconnectAll:)),
@@ -898,7 +949,20 @@ pub fn create_menu(
     set_menu_item_target(&disconnect_all_item, handler as &AnyObject);
     disconnect_all_item.setTag(DISCONNECT_ALL_TAG);
     update_disconnect_all_item(&disconnect_all_item, active_background_count());
-    menu.addItem(&disconnect_all_item);
+    connections_menu.addItem(&disconnect_all_item);
+
+    let retry_all_failed_item = create_menu_item_with_action(
+        ns_string!("Retry all failed"),
+        Some(sel!(retryAllFailed:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_target(&retry_all_failed_item, handler as &AnyObject);
+    retry_all_failed_item.setTag(RETRY_ALL_FAILED_TAG);
+    update_retry_all_failed_item(&retry_all_failed_item, failed_connection_count());
+    connections_menu.addItem(&retry_all_failed_item);
+    connections_item.setSubmenu(Some(&connections_menu));
+    menu.addItem(&connections_item);
 
     let update_item = create_menu_item_with_action(
         ns_string!("Check for Updates..."),
@@ -1166,32 +1230,44 @@ fn active_background_count() -> usize {
 }
 
 fn update_disconnect_all_item(item: &NSMenuItem, active_count: usize) {
-    let title = if active_count == 0 {
-        "Disconnect All".to_owned()
-    } else {
-        format!("Disconnect All ({active_count})")
-    };
+    let title = format!("Disconnect All ({active_count})");
     item.setTitle(&NSString::from_str(&title));
     item.setEnabled(active_count > 0);
 }
 
+fn failed_connection_count() -> usize {
+    GLOBAL_APP
+        .get()
+        .map_or(0, |app| app.tunnel_manager.failure_count())
+}
+
+fn update_retry_all_failed_item(item: &NSMenuItem, failed_count: usize) {
+    item.setTitle(&NSString::from_str(&format!(
+        "Retry all failed ({failed_count})"
+    )));
+    item.setEnabled(failed_count > 0);
+}
+
 pub fn update_status_item(status_item: &NSStatusItem, mtm: MainThreadMarker) {
     let active_count = active_background_count();
+    let failed_count = failed_connection_count();
     let active = active_count > 0;
     if let Some(button) = status_item.button(mtm) {
-        STATUS_IMAGES.with(|(idle_image, active_image)| {
-            let image = if active { active_image } else { idle_image };
-            button.setImage(image.as_deref());
-            let title = if image.is_some() {
-                ""
-            } else if active {
-                ICON_ACTIVE
-            } else {
-                ICON_INACTIVE
+        STATUS_IMAGES.with(|images| {
+            let (image, fallback) = match status_icon(active_count, failed_count) {
+                StatusIcon::Idle => (&images[0], ICON_INACTIVE),
+                StatusIcon::Active => (&images[1], ICON_ACTIVE),
+                StatusIcon::Failed => (&images[2], ICON_FAILED),
             };
+            button.setImage(image.as_deref());
+            let title = if image.is_some() { "" } else { fallback };
             button.setTitle(&NSString::from_str(title));
         });
-        let status = if active {
+        let status = if failed_count > 0 {
+            format!(
+                "Failed connections ({failed_count}); active background processes ({active_count})"
+            )
+        } else if active {
             format!("Active background processes ({active_count})")
         } else {
             "No active background processes".to_owned()
@@ -1204,7 +1280,16 @@ pub fn update_status_item(status_item: &NSStatusItem, mtm: MainThreadMarker) {
 
 #[cfg(test)]
 mod connection_tests {
-    use super::connection_presentation;
+    use super::{StatusIcon, connection_presentation, status_icon};
+
+    #[test]
+    fn failure_icon_takes_priority_until_all_failures_are_resolved() {
+        assert_eq!(status_icon(0, 0), StatusIcon::Idle);
+        assert_eq!(status_icon(2, 0), StatusIcon::Active);
+        assert_eq!(status_icon(0, 1), StatusIcon::Failed);
+        assert_eq!(status_icon(2, 1), StatusIcon::Failed);
+        assert_eq!(status_icon(2, 3), StatusIcon::Failed);
+    }
 
     #[test]
     fn native_connection_state_tracks_fault_retry_and_off() {
