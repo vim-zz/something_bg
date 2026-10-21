@@ -1,5 +1,11 @@
 # Release Notes - Something in the Background
 
+## v1.21.1
+
+**Release Date:** October 21, 2026
+
+- The blue update dot now aligns with connection checkmarks without shifting the menu text.
+
 ## v1.21.0
 
 **Release Date:** October 21, 2026

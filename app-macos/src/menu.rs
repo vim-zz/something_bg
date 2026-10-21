@@ -737,17 +737,13 @@ fn update_check_for_updates_item(menu: &NSMenu) {
             if item.tag() == CHECK_FOR_UPDATES_TAG {
                 item.setTitle(&title);
                 item.setEnabled(enabled);
+                // Use the checkmark gutter so the badge doesn't indent the title.
+                item.setImage(None);
                 UPDATE_DOT.with(|dot| {
-                    item.setImage(if update_available { Some(&**dot) } else { None });
+                    // SAFETY: A valid retained image is always supplied.
+                    unsafe { item.setOnStateImage(Some(dot)) };
                 });
-                // macOS 27 hides menu images by default, including update badges.
-                if item.respondsToSelector(sel!(setPreferredImageVisibility:)) {
-                    // SAFETY: The selector takes NSMenuItemImageVisibility
-                    // (NSInteger); 1 is NSMenuItemImageVisibilityVisible.
-                    unsafe {
-                        let _: () = objc2::msg_send![&*item, setPreferredImageVisibility: 1_isize];
-                    }
-                }
+                item.setState(if update_available { 1 } else { 0 });
                 return;
             }
             if let Some(submenu) = item.submenu() {
