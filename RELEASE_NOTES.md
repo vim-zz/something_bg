@@ -1,5 +1,11 @@
 # Release Notes - Something in the Background
 
+## v1.22.0
+
+**Release Date:** October 25, 2026
+
+- Added automatic connection retries with configurable limits and delays, menu controls to enable or stop retries, live countdowns, and persistent error details.
+
 ## v1.21.1
 
 **Release Date:** October 21, 2026

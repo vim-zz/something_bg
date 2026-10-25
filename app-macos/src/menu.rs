@@ -20,10 +20,10 @@ use objc2_foundation::{
 use crate::GLOBAL_APP;
 use crate::paths::MacPaths;
 use something_bg_core::config::{
-    CommandConfig, Config, ScheduledTaskConfig, SectionKind, TunnelConfig,
+    CommandConfig, Config, ConfigSettingUpdate, ScheduledTaskConfig, SectionKind, TunnelConfig,
 };
 use something_bg_core::platform::AppPaths;
-use something_bg_core::tunnel::TunnelFailure;
+use something_bg_core::tunnel::{RetryStatus, TunnelFailure};
 
 // These are backup icons if image loading fails
 const ICON_INACTIVE: &str = "○"; // Empty circle for idle
@@ -37,8 +37,8 @@ enum StatusIcon {
     Failed,
 }
 
-fn status_icon(active_count: usize, failed_count: usize) -> StatusIcon {
-    if failed_count > 0 {
+fn status_icon(active_count: usize, failed_count: usize, retry_count: usize) -> StatusIcon {
+    if failed_count > 0 || retry_count > 0 {
         StatusIcon::Failed
     } else if active_count > 0 {
         StatusIcon::Active
@@ -97,6 +97,8 @@ const START_AT_LOGIN_TAG: isize = 10_003;
 const LOGIN_SETTINGS_TAG: isize = 10_004;
 const SCHEDULED_TASK_TAG: isize = 10_005;
 const RETRY_ALL_FAILED_TAG: isize = 10_006;
+const ENABLE_AUTO_RETRY_TAG: isize = 10_007;
+const RETRY_COUNTDOWN_TAG: isize = 10_008;
 
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
@@ -142,7 +144,7 @@ define_class!(
             if let Some(key) = item.representedObject() {
                 let key = extract_nsstring_from_object(&key);
                 if let Some(app) = GLOBAL_APP.get()
-                    && let Some(failure) = app.tunnel_manager.failure(&key) {
+                    && let Some(failure) = app.tunnel_manager.failure_details(&key) {
                     let name = app.tunnel_names.lock().unwrap().get(&key).cloned().unwrap_or_else(|| key.clone());
                     crate::connection_details::show(&name, &failure.command_line, &failure.env_path, &failure.error_logs(), Some(&failure.start_time_label()), Some(&failure.failure_time_label()), Some(&key));
                 }
@@ -152,6 +154,38 @@ define_class!(
         #[unsafe(method(toggleTunnel:))]
         fn toggle_tunnel(&self, item: &NSMenuItem) {
             toggle_tunnel_handler(item);
+        }
+
+        #[unsafe(method(cancelAutoRetry:))]
+        fn cancel_auto_retry(&self, item: &NSMenuItem) {
+            if let Some(key) = item.representedObject()
+                && let Some(app) = GLOBAL_APP.get() {
+                let key = extract_nsstring_from_object(&key);
+                app.tunnel_manager.cancel_retry(&key);
+                if let Some(status) = app.get_status_item() {
+                    update_status_item(&status, self.mtm());
+                    if let Some(menu) = status.menu(self.mtm()) {
+                        refresh_connection_items(&menu);
+                    }
+                }
+            }
+        }
+
+        #[unsafe(method(enableAutoRetry:))]
+        fn enable_auto_retry(&self, item: &NSMenuItem) {
+            if let Some(key) = item.representedObject()
+                && let Some(app) = GLOBAL_APP.get() {
+                let key = extract_nsstring_from_object(&key);
+                match app.enable_auto_retry(&key) {
+                    Ok(config) => {
+                        if let Some(status) = app.get_status_item() {
+                            status.setMenu(Some(&create_menu(self, &config, self.mtm())));
+                            update_status_item(&status, self.mtm());
+                        }
+                    }
+                    Err(error) => show_settings_error("Could Not Enable Auto Retry", &error),
+                }
+            }
         }
 
         #[unsafe(method(clearConnectionError:))]
@@ -526,10 +560,15 @@ fn disconnect_all_handler() {
     }
 }
 
-fn connection_presentation(name: &str, active: bool, faulty: bool) -> (String, isize) {
+fn connection_presentation(
+    name: &str,
+    active: bool,
+    faulty: bool,
+    retry: Option<&something_bg_core::tunnel::RetryStatus>,
+) -> (String, isize) {
     (
         name.to_owned(),
-        if faulty {
+        if faulty || retry.is_some() {
             -1
         } else if active {
             1
@@ -539,9 +578,93 @@ fn connection_presentation(name: &str, active: bool, faulty: bool) -> (String, i
     )
 }
 
-/// A native submenu takes over the parent item's click, so keep retry available
-/// alongside the diagnostics and clear actions while the connection is faulty.
-fn update_connection_submenu(item: &NSMenuItem, command_id: &str, failure: Option<&TunnelFailure>) {
+fn retry_submenu_labels(retry: &RetryStatus, remaining_secs: u64) -> [String; 2] {
+    [
+        if remaining_secs == 0 {
+            "Retrying now…".to_owned()
+        } else {
+            format!("Retrying in {remaining_secs}s…")
+        },
+        format!("Retry {} of {}", retry.attempt, retry.max_retries),
+    ]
+}
+
+/// Update countdown rows in place so an open submenu stays open while it ticks.
+/// Keep an explicit stop action because a submenu takes over the parent click.
+fn update_retry_submenu(item: &NSMenuItem, command_id: &str, retry: &RetryStatus) {
+    let labels = retry_submenu_labels(retry, retry.remaining_secs());
+    if let Some(submenu) = item.submenu()
+        && submenu
+            .itemAtIndex(0)
+            .is_some_and(|row| row.tag() == RETRY_COUNTDOWN_TAG)
+    {
+        for (index, label) in labels.iter().enumerate() {
+            if let Some(row) = submenu.itemAtIndex(index as isize) {
+                row.setTitle(&NSString::from_str(label));
+            }
+        }
+        return;
+    }
+    let Some(target) = item.target() else {
+        return;
+    };
+    let mtm = item.mtm();
+    let submenu = NSMenu::new(mtm);
+    submenu.setAutoenablesItems(false);
+    for (index, label) in labels.iter().enumerate() {
+        let row =
+            create_menu_item_with_action(&NSString::from_str(label), None, ns_string!(""), mtm);
+        row.setEnabled(false);
+        if index == 0 {
+            row.setTag(RETRY_COUNTDOWN_TAG);
+        }
+        submenu.addItem(&row);
+    }
+    submenu.addItem(&NSMenuItem::separatorItem(mtm));
+    let show_error = create_menu_item_with_action(
+        ns_string!("Show Error…"),
+        Some(sel!(showConnectionError:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_represented_object(&show_error, &NSString::from_str(command_id));
+    set_menu_item_target(&show_error, &target);
+    submenu.addItem(&show_error);
+    let cancel = create_menu_item_with_action(
+        ns_string!("Stop"),
+        Some(sel!(cancelAutoRetry:)),
+        ns_string!(""),
+        mtm,
+    );
+    cancel.setToolTip(Some(ns_string!(
+        "Stop retries for this attempt. Keep the last error and saved auto-retry settings."
+    )));
+    set_menu_item_represented_object(&cancel, &NSString::from_str(command_id));
+    set_menu_item_target(&cancel, &target);
+    submenu.addItem(&cancel);
+    item.setSubmenu(Some(&submenu));
+}
+
+/// Show either retry progress or the final failure's diagnostics and actions.
+fn update_connection_submenu(
+    item: &NSMenuItem,
+    command_id: &str,
+    failure: Option<&TunnelFailure>,
+    retry: Option<&RetryStatus>,
+    offer_auto_retry: bool,
+) {
+    if let Some(retry) = retry {
+        update_retry_submenu(item, command_id, retry);
+        return;
+    }
+    // A final failure can arrive before a refresh sees the intervening launch.
+    if item.submenu().is_some_and(|submenu| {
+        submenu
+            .itemAtIndex(0)
+            .is_some_and(|row| row.tag() == RETRY_COUNTDOWN_TAG)
+    }) {
+        item.setSubmenu(None);
+    }
     let Some(failure) = failure else {
         if item.submenu().is_some() {
             item.setSubmenu(None);
@@ -567,7 +690,14 @@ fn update_connection_submenu(item: &NSMenuItem, command_id: &str, failure: Optio
                 time_item.setTitle(label);
             }
         }
-        return;
+        let offered = (0..submenu.numberOfItems()).any(|index| {
+            submenu
+                .itemAtIndex(index)
+                .is_some_and(|item| item.tag() == ENABLE_AUTO_RETRY_TAG)
+        });
+        if offered == offer_auto_retry {
+            return;
+        }
     }
     let Some(target) = item.target() else {
         return;
@@ -596,10 +726,34 @@ fn update_connection_submenu(item: &NSMenuItem, command_id: &str, failure: Optio
         set_menu_item_target(&action_item, &target);
         submenu.addItem(&action_item);
     }
+    if offer_auto_retry {
+        let enable = create_menu_item_with_action(
+            ns_string!("Enable Auto Retry (3 retries)"),
+            Some(sel!(enableAutoRetry:)),
+            ns_string!(""),
+            mtm,
+        );
+        enable.setTag(ENABLE_AUTO_RETRY_TAG);
+        enable.setToolTip(Some(ns_string!("Save 3 retries with 5, 10, and 20 second delays (capped at 60 seconds), reload settings, and retry this connection.")));
+        set_menu_item_represented_object(&enable, &NSString::from_str(command_id));
+        set_menu_item_target(&enable, &target);
+        submenu.addItem(&enable);
+    }
     item.setSubmenu(Some(&submenu));
 }
 
 fn refresh_connection_items(menu: &NSMenu) {
+    let candidates = GLOBAL_APP
+        .get()
+        .and_then(|app| ConfigSettingUpdate::auto_retry_candidates(app.paths.as_ref()).ok())
+        .unwrap_or_default();
+    refresh_connection_items_with_candidates(menu, &candidates);
+}
+
+fn refresh_connection_items_with_candidates(
+    menu: &NSMenu,
+    candidates: &std::collections::HashSet<String>,
+) {
     let Some(app) = GLOBAL_APP.get() else {
         return;
     };
@@ -620,7 +774,7 @@ fn refresh_connection_items(menu: &NSMenu) {
         if item.tag() != CONNECTION_TAG
             && let Some(submenu) = item.submenu()
         {
-            refresh_connection_items(&submenu);
+            refresh_connection_items_with_candidates(&submenu, candidates);
         }
         if let Some(key) = item.representedObject() {
             let key = extract_nsstring_from_object(&key);
@@ -640,11 +794,28 @@ fn refresh_connection_items(menu: &NSMenu) {
                     .lock()
                     .unwrap()
                     .contains(&key);
-                let (title, state) = connection_presentation(&name, active, faulty);
+                let retry = app.tunnel_manager.retry_status(&key);
+                let (title, state) = connection_presentation(&name, active, faulty, retry.as_ref());
                 item.setTitle(&NSString::from_str(&title));
                 item.setState(state);
-                update_connection_submenu(&item, &key, failure.as_ref());
-                item.setToolTip(Some(&NSString::from_str(if faulty {
+                let offer_auto_retry = candidates.contains(&key)
+                    && app
+                        .tunnel_manager
+                        .commands_config
+                        .lock()
+                        .unwrap()
+                        .get(&key)
+                        .is_some_and(|command| command.retry.is_none());
+                update_connection_submenu(
+                    &item,
+                    &key,
+                    failure.as_ref(),
+                    retry.as_ref(),
+                    offer_auto_retry,
+                );
+                item.setToolTip(Some(&NSString::from_str(if retry.is_some() {
+                    "Open the submenu to see the retry countdown or cancel automatic retries."
+                } else if faulty {
                     "Open the submenu to view the error, retry the connection, or clear the warning."
                 } else {
                     "Click to connect or disconnect."
@@ -1055,10 +1226,26 @@ fn create_menu_item(
         .get()
         .and_then(|app| app.tunnel_manager.failure(command_id));
     let faulty = failure.is_some();
-    let (title, state) = connection_presentation(&tunnel_config.name, active, faulty);
+    let retry = GLOBAL_APP
+        .get()
+        .and_then(|app| app.tunnel_manager.retry_status(command_id));
+    let (title, state) =
+        connection_presentation(&tunnel_config.name, active, faulty, retry.as_ref());
     item.setTitle(&NSString::from_str(&title));
     item.setState(state);
-    update_connection_submenu(&item, command_id, failure.as_ref());
+    let offer_auto_retry = faulty
+        && tunnel_config.retry.is_none()
+        && GLOBAL_APP.get().is_some_and(|app| {
+            ConfigSettingUpdate::auto_retry_candidates(app.paths.as_ref())
+                .is_ok_and(|candidates| candidates.contains(command_id))
+        });
+    update_connection_submenu(
+        &item,
+        command_id,
+        failure.as_ref(),
+        retry.as_ref(),
+        offer_auto_retry,
+    );
     if let Some(image) = load_icon("sf:exclamationmark.triangle.fill") {
         // AppKit retains the image used for the native mixed-state indicator.
         unsafe {
@@ -1247,10 +1434,13 @@ fn update_retry_all_failed_item(item: &NSMenuItem, failed_count: usize) {
 pub fn update_status_item(status_item: &NSStatusItem, mtm: MainThreadMarker) {
     let active_count = active_background_count();
     let failed_count = failed_connection_count();
+    let retry_count = GLOBAL_APP
+        .get()
+        .map_or(0, |app| app.tunnel_manager.retry_count());
     let active = active_count > 0;
     if let Some(button) = status_item.button(mtm) {
         STATUS_IMAGES.with(|images| {
-            let (image, fallback) = match status_icon(active_count, failed_count) {
+            let (image, fallback) = match status_icon(active_count, failed_count, retry_count) {
                 StatusIcon::Idle => (&images[0], ICON_INACTIVE),
                 StatusIcon::Active => (&images[1], ICON_ACTIVE),
                 StatusIcon::Failed => (&images[2], ICON_FAILED),
@@ -1259,9 +1449,10 @@ pub fn update_status_item(status_item: &NSStatusItem, mtm: MainThreadMarker) {
             let title = if image.is_some() { "" } else { fallback };
             button.setTitle(&NSString::from_str(title));
         });
-        let status = if failed_count > 0 {
+        let status = if failed_count > 0 || retry_count > 0 {
             format!(
-                "Failed connections ({failed_count}); active background processes ({active_count})"
+                "Failed connections ({failed_count}); retrying connections ({retry_count}); active background processes ({})",
+                active_count.saturating_sub(retry_count)
             )
         } else if active {
             format!("Active background processes ({active_count})")
@@ -1276,30 +1467,63 @@ pub fn update_status_item(status_item: &NSStatusItem, mtm: MainThreadMarker) {
 
 #[cfg(test)]
 mod connection_tests {
-    use super::{StatusIcon, connection_presentation, status_icon};
+    use super::{StatusIcon, connection_presentation, retry_submenu_labels, status_icon};
+
+    #[test]
+    fn retry_submenu_counts_down_and_keeps_the_attempt_visible() {
+        let retry = something_bg_core::tunnel::RetryStatus {
+            attempt: 2,
+            max_retries: 3,
+            next_attempt_at: std::time::Instant::now(),
+        };
+        assert_eq!(
+            retry_submenu_labels(&retry, 10),
+            ["Retrying in 10s…", "Retry 2 of 3"]
+        );
+        assert_eq!(
+            retry_submenu_labels(&retry, 1),
+            ["Retrying in 1s…", "Retry 2 of 3"]
+        );
+        assert_eq!(
+            retry_submenu_labels(&retry, 0),
+            ["Retrying now…", "Retry 2 of 3"]
+        );
+    }
 
     #[test]
     fn failure_icon_takes_priority_until_all_failures_are_resolved() {
-        assert_eq!(status_icon(0, 0), StatusIcon::Idle);
-        assert_eq!(status_icon(2, 0), StatusIcon::Active);
-        assert_eq!(status_icon(0, 1), StatusIcon::Failed);
-        assert_eq!(status_icon(2, 1), StatusIcon::Failed);
-        assert_eq!(status_icon(2, 3), StatusIcon::Failed);
+        assert_eq!(status_icon(0, 0, 0), StatusIcon::Idle);
+        assert_eq!(status_icon(2, 0, 0), StatusIcon::Active);
+        assert_eq!(status_icon(0, 1, 0), StatusIcon::Failed);
+        assert_eq!(status_icon(2, 1, 0), StatusIcon::Failed);
+        assert_eq!(status_icon(2, 3, 0), StatusIcon::Failed);
+        assert_eq!(status_icon(1, 0, 1), StatusIcon::Failed);
+        assert_eq!(status_icon(3, 0, 1), StatusIcon::Failed);
+        assert_eq!(status_icon(2, 1, 1), StatusIcon::Failed);
     }
 
     #[test]
     fn native_connection_state_tracks_fault_retry_and_off() {
         assert_eq!(
-            connection_presentation("Database", false, true),
+            connection_presentation("Database", false, true, None),
             ("Database".into(), -1)
         );
         assert_eq!(
-            connection_presentation("Database", true, false),
+            connection_presentation("Database", true, false, None),
             ("Database".into(), 1)
         );
         assert_eq!(
-            connection_presentation("Database", false, false),
+            connection_presentation("Database", false, false, None),
             ("Database".into(), 0)
+        );
+        let retry = something_bg_core::tunnel::RetryStatus {
+            attempt: 2,
+            max_retries: 5,
+            next_attempt_at: std::time::Instant::now(),
+        };
+        assert_eq!(
+            connection_presentation("Database", true, false, Some(&retry)),
+            ("Database".into(), -1)
         );
     }
 }

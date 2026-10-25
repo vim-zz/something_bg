@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use something_bg_core::command::{CommandRunner, format_duration as format_elapsed};
-use something_bg_core::config::{Config, ConfigMonitor, LoginSettingUpdate};
+use something_bg_core::config::{Config, ConfigMonitor, ConfigSettingUpdate};
 use something_bg_core::platform::AppPaths;
 use something_bg_core::scheduler::TaskScheduler;
 use something_bg_core::tunnel::TunnelManager;
@@ -229,7 +229,7 @@ impl App {
     pub fn toggle_start_at_login(&self) -> Result<(), String> {
         let previous = crate::login_item::status()?;
         let enabled = !previous.requested();
-        let update = LoginSettingUpdate::prepare(self.paths.as_ref(), enabled)
+        let update = ConfigSettingUpdate::prepare_login(self.paths.as_ref(), enabled)
             .map_err(|error| error.to_string())?;
         crate::login_item::set_enabled(enabled)?;
         if let Err(error) = update.save() {
@@ -271,6 +271,17 @@ impl App {
         self.config_monitor.mark_applied(contents);
 
         info!("Reloaded configuration successfully");
+        Ok(config)
+    }
+
+    pub fn enable_auto_retry(&self, key: &str) -> Result<Config, String> {
+        let update = ConfigSettingUpdate::prepare_auto_retry(self.paths.as_ref(), key)
+            .map_err(|error| error.to_string())?;
+        update.save().map_err(|error| error.to_string())?;
+        let config = self.reload_config().map_err(|error| {
+            format!("Auto Retry was saved, but the configuration could not be reloaded: {error}")
+        })?;
+        self.tunnel_manager.toggle(key, true);
         Ok(config)
     }
 }

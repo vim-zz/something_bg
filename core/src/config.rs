@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::platform::AppPaths;
-use crate::tunnel::TunnelCommand;
+use crate::tunnel::{RetryPolicy, TunnelCommand};
 
 pub const CURRENT_CONFIG_VERSION: u64 = 2;
 
@@ -49,16 +49,83 @@ impl ConfigMonitor {
     }
 }
 
-/// A targeted config edit, prepared before changing an OS preference.
+/// A targeted config edit that preserves the surrounding document.
 /// Keeps comments, unknown keys, and unapplied manual edits intact.
-pub struct LoginSettingUpdate {
+pub struct ConfigSettingUpdate {
     path: PathBuf,
     pub original: Vec<u8>,
     pub updated: Vec<u8>,
 }
 
-impl LoginSettingUpdate {
-    pub fn prepare(
+impl ConfigSettingUpdate {
+    /// Read saved settings without migrating, rewriting, or applying manual edits.
+    pub fn auto_retry_candidates(
+        paths: &dyn AppPaths,
+    ) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+        let document: V2Document = toml::from_str(&fs::read_to_string(paths.config_path())?)?;
+        if document.version != CURRENT_CONFIG_VERSION {
+            return Err("Reload the configuration before enabling Auto Retry.".into());
+        }
+        Ok(document
+            .sections
+            .into_iter()
+            .filter(|section| section.kind == SectionKind::Tunnel)
+            .flat_map(|section| section.items)
+            .filter(|item| item.retry.is_none())
+            .map(|item| item.id)
+            .collect())
+    }
+
+    pub fn prepare_auto_retry(
+        paths: &dyn AppPaths,
+        connection_id: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let path = fs::canonicalize(paths.config_path())?;
+        let original = fs::read(&path)?;
+        let content = std::str::from_utf8(&original)?;
+        let parsed: V2Document = toml::from_str(content)?;
+        if parsed.version != CURRENT_CONFIG_VERSION {
+            return Err("Reload the configuration before enabling Auto Retry.".into());
+        }
+        Config::from_v2_document(parsed.clone())?;
+        let (section_index, item_index, item) = parsed
+            .sections
+            .iter()
+            .enumerate()
+            .filter(|(_, section)| section.kind == SectionKind::Tunnel)
+            .find_map(|(section_index, section)| {
+                section
+                    .items
+                    .iter()
+                    .enumerate()
+                    .find(|(_, item)| item.id == connection_id)
+                    .map(|(item_index, item)| (section_index, item_index, item))
+            })
+            .ok_or("This connection is no longer in the configuration. Reload your settings.")?;
+        if item.retry.is_some() {
+            return Err("This connection already has retry settings. Reload your settings.".into());
+        }
+        let defaults = RetryPolicy::default();
+        let mut retry = toml_edit::InlineTable::new();
+        retry.insert("max_retries", i64::from(defaults.max_retries).into());
+        // Serialize the enum so the saved strategy always matches the runtime default.
+        let policy = toml::Value::try_from(&defaults)?;
+        retry.insert("strategy", policy["strategy"].as_str().unwrap().into());
+        retry.insert(
+            "initial_delay_secs",
+            (defaults.initial_delay_secs as i64).into(),
+        );
+        retry.insert("max_delay_secs", (defaults.max_delay_secs as i64).into());
+        let mut document: toml_edit::Document = content.parse()?;
+        document["sections"][section_index]["items"][item_index]["retry"] = toml_edit::value(retry);
+        Ok(Self {
+            path,
+            original,
+            updated: document.to_string().into_bytes(),
+        })
+    }
+
+    pub fn prepare_login(
         paths: &dyn AppPaths,
         enabled: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -89,9 +156,7 @@ impl LoginSettingUpdate {
         use std::io::Write;
         // Do not clobber an editor's intervening changes.
         if fs::read(&self.path)? != self.original {
-            return Err(
-                "Configuration changed while saving Start at Login. Please try again.".into(),
-            );
+            return Err("Configuration changed while saving settings. Please try again.".into());
         }
         let temp_path = self
             .path
@@ -140,6 +205,7 @@ pub struct TunnelConfig {
     pub args: Vec<String>,
     pub kill_command: String,
     pub kill_args: Vec<String>,
+    pub retry: Option<RetryPolicy>,
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +289,8 @@ struct SectionDocument {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ItemDocument {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retry: Option<RetryPolicy>,
     id: String,
     name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -364,6 +432,7 @@ impl Config {
                         args: config.args.clone(),
                         kill_command: config.kill_command.clone(),
                         kill_args: config.kill_args.clone(),
+                        retry: config.retry.clone(),
                     },
                 )
             })
@@ -428,6 +497,16 @@ impl Config {
             let mut item_ids = Vec::new();
             for item in section.items {
                 let id = item.id.clone();
+                if let Some(retry) = &item.retry {
+                    if section.kind != SectionKind::Tunnel {
+                        return Err(
+                            format!("Item '{id}': retry is only supported for tunnels").into()
+                        );
+                    }
+                    retry
+                        .validate()
+                        .map_err(|error| format!("Tunnel '{id}': {error}"))?;
+                }
                 match section.kind {
                     SectionKind::Tunnel => {
                         if !tunnel_ids.insert(id.clone()) {
@@ -443,6 +522,7 @@ impl Config {
                                 args,
                                 kill_command,
                                 kill_args,
+                                retry: item.retry,
                             },
                         ));
                     }
@@ -558,6 +638,7 @@ impl Config {
                     .filter(|id| !self.discovered_command_ids.contains(*id))
                     .filter_map(|id| match section.kind {
                         SectionKind::Tunnel => self.tunnel(id).map(|config| ItemDocument {
+                            retry: config.retry.clone(),
                             id: id.clone(),
                             name: config.name.clone(),
                             start: Some(join_action(&config.command, &config.args)),
@@ -567,6 +648,7 @@ impl Config {
                             output: None,
                         }),
                         SectionKind::Command => self.command(id).map(|config| ItemDocument {
+                            retry: None,
                             id: id.clone(),
                             name: config.name.clone(),
                             start: None,
@@ -577,6 +659,7 @@ impl Config {
                         }),
                         SectionKind::ScheduledTask => {
                             self.schedule(id).map(|config| ItemDocument {
+                                retry: None,
                                 id: id.clone(),
                                 name: config.name.clone(),
                                 start: None,
@@ -631,6 +714,7 @@ impl Default for Config {
                     separator: None,
                     items: vec![
                         ItemDocument {
+                            retry: None,
                             id: "example-ssh".to_string(),
                             name: "Example SSH Tunnel".to_string(),
                             start: Some(vec![
@@ -650,6 +734,7 @@ impl Default for Config {
                             output: None,
                         },
                         ItemDocument {
+                            retry: None,
                             id: "k8s-example".to_string(),
                             name: "K8s Port Forward".to_string(),
                             start: Some(vec![
@@ -678,6 +763,7 @@ impl Default for Config {
                     kind: SectionKind::Tunnel,
                     separator: None,
                     items: vec![ItemDocument {
+                        retry: None,
                         id: "colima".to_string(),
                         name: "Colima Docker".to_string(),
                         start: Some(vec!["colima".to_string(), "start".to_string()]),
@@ -694,6 +780,7 @@ impl Default for Config {
                     kind: SectionKind::ScheduledTask,
                     separator: None,
                     items: vec![ItemDocument {
+                        retry: None,
                         id: "daily-backup".to_string(),
                         name: "Daily Backup".to_string(),
                         start: None,
@@ -845,6 +932,7 @@ fn migrate_legacy_tunnels(
 ) -> Vec<SectionDocument> {
     migrate_legacy_entries(entries, SectionKind::Tunnel, "tunnels", used, |id, item| {
         ItemDocument {
+            retry: None,
             id,
             name: item.name,
             start: Some(join_action(&item.command, &item.args)),
@@ -866,6 +954,7 @@ fn migrate_legacy_commands(
         "commands",
         used,
         |id, item| ItemDocument {
+            retry: None,
             id,
             name: item.name,
             start: None,
@@ -887,6 +976,7 @@ fn migrate_legacy_schedules(
         "scheduled",
         used,
         |id, item| ItemDocument {
+            retry: None,
             id,
             name: item.name,
             start: None,
@@ -1136,7 +1226,7 @@ mod tests {
         let original = "# My config\nversion = 2\n\n[settings]\nstart_at_login = false # preference\ncustom = 'keep me'\n\n[environment]\npath = '/custom/bin'\n";
         fs::write(paths.config_path(), original).unwrap();
         let monitor = ConfigMonitor::new(paths.config_path(), Some(original.as_bytes().to_vec()));
-        let update = LoginSettingUpdate::prepare(&paths, true).unwrap();
+        let update = ConfigSettingUpdate::prepare_login(&paths, true).unwrap();
         update.save().unwrap();
         assert_eq!(
             fs::read_to_string(paths.config_path()).unwrap(),
@@ -1149,7 +1239,7 @@ mod tests {
             .unwrap()
             .replace("/custom/bin", "/other/bin");
         fs::write(paths.config_path(), &manually_edited).unwrap();
-        let update = LoginSettingUpdate::prepare(&paths, false).unwrap();
+        let update = ConfigSettingUpdate::prepare_login(&paths, false).unwrap();
         update.save().unwrap();
         monitor.mark_setting_applied(&update.original, update.updated);
         assert!(
@@ -1171,7 +1261,7 @@ mod tests {
             "version = 2\nsettings = { start_at_login = false, custom = 'keep' }\n",
         ] {
             fs::write(paths.config_path(), original).unwrap();
-            LoginSettingUpdate::prepare(&paths, true)
+            ConfigSettingUpdate::prepare_login(&paths, true)
                 .unwrap()
                 .save()
                 .unwrap();
@@ -1190,11 +1280,11 @@ mod tests {
             "version = 2\n[settings]\nstart_at_login = 'yes'",
         ] {
             fs::write(paths.config_path(), original).unwrap();
-            assert!(LoginSettingUpdate::prepare(&paths, true).is_err());
+            assert!(ConfigSettingUpdate::prepare_login(&paths, true).is_err());
             assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), original);
         }
         fs::write(paths.config_path(), "version = 2\n").unwrap();
-        let update = LoginSettingUpdate::prepare(&paths, true).unwrap();
+        let update = ConfigSettingUpdate::prepare_login(&paths, true).unwrap();
         let changed = "version = 2\n# edited while saving\n";
         fs::write(paths.config_path(), changed).unwrap();
         assert!(update.save().is_err());
@@ -1207,13 +1297,202 @@ mod tests {
         let paths = test_paths("login-save-failure");
         let original = "version = 2\n";
         fs::write(paths.config_path(), original).unwrap();
-        let update = LoginSettingUpdate::prepare(&paths, true).unwrap();
+        let update = ConfigSettingUpdate::prepare_login(&paths, true).unwrap();
         let temp_path = paths
             .config_path()
             .with_extension(format!("toml.{}.tmp", std::process::id()));
         fs::create_dir(&temp_path).unwrap();
         assert!(update.save().is_err());
         assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), original);
+        fs::remove_dir_all(paths.directory).unwrap();
+    }
+
+    #[test]
+    fn retry_policy_defaults_round_trip_and_reject_invalid_settings() {
+        let parse = |policy: &str, kind: &str| -> Result<Config, Box<dyn std::error::Error>> {
+            let document = format!(
+                r#"
+version = 2
+[[sections]]
+id = "connections"
+kind = "{kind}"
+[[sections.items]]
+id = "database"
+name = "Database"
+start = ["ssh", "-N", "database"]
+stop = ["pkill", "-f", "database"]
+run = ["true"]
+{policy}
+"#
+            );
+            Config::from_v2_document(toml::from_str(&document)?)
+        };
+        assert!(
+            parse("", "tunnel")
+                .unwrap()
+                .tunnel("database")
+                .unwrap()
+                .retry
+                .is_none()
+        );
+        let defaults = parse("retry = {}", "tunnel").unwrap();
+        assert_eq!(
+            defaults.tunnel("database").unwrap().retry,
+            Some(RetryPolicy::default())
+        );
+        let config = parse(
+            "retry = { max_retries = 5, strategy = 'fixed', initial_delay_secs = 10, max_delay_secs = 20 }",
+            "tunnel",
+        ).unwrap();
+        let saved = toml::to_string(&config.to_v2_document()).unwrap();
+        let reloaded = Config::from_v2_document(toml::from_str(&saved).unwrap()).unwrap();
+        let policy = reloaded.to_tunnel_commands()["database"]
+            .retry
+            .clone()
+            .unwrap();
+        assert_eq!(policy.max_retries, 5);
+        assert_eq!(policy.strategy, crate::tunnel::RetryStrategy::Fixed);
+        assert_eq!(policy.initial_delay_secs, 10);
+        assert_eq!(policy.max_delay_secs, 20);
+        assert_eq!(Some(policy), config.tunnel("database").unwrap().retry);
+        assert!(parse("retry = { max_retries = 0 }", "tunnel").is_ok());
+        for invalid in [
+            "max_retries = -1",
+            "strategy = 'unknown'",
+            "initial_delay_secs = 0",
+            "initial_delay_secs = 5, max_delay_secs = 4",
+            "max_delay_secs = 86401",
+            "max_retires = 5",
+        ] {
+            assert!(
+                parse(&format!("retry = {{ {invalid} }}"), "tunnel").is_err(),
+                "{invalid}"
+            );
+        }
+        assert!(parse("retry = {}", "command").is_err());
+    }
+
+    #[test]
+    fn menu_auto_retry_preserves_document_and_reloads_three_retry_defaults() {
+        let paths = test_paths("menu-auto-retry");
+        let original = r#"# My connections
+version = 2
+[settings]
+custom = "keep me"
+[[sections]]
+id = "commands"
+kind = "command"
+[[sections.items]]
+id = "database"
+name = "Same ID in a different kind"
+run = ["true"]
+[[sections]]
+id = "connections"
+kind = "tunnel"
+[[sections.items]]
+id = "database"
+name = "Database" # keep this comment
+start = ["ssh", "-N", "database"]
+stop = ["pkill", "-f", "database"]
+custom = "also keep me"
+[[sections.items]]
+id = "other"
+name = "Other"
+start = ["true"]
+stop = ["true"]
+retry = { max_retries = 0 } # deliberately disabled
+"#;
+        fs::write(paths.config_path(), original).unwrap();
+        assert_eq!(
+            ConfigSettingUpdate::auto_retry_candidates(&paths).unwrap(),
+            HashSet::from(["database".into()])
+        );
+        let update = ConfigSettingUpdate::prepare_auto_retry(&paths, "database").unwrap();
+        update.save().unwrap();
+        let saved = fs::read_to_string(paths.config_path()).unwrap();
+        assert!(saved.contains("# My connections"));
+        assert!(saved.contains("name = \"Database\" # keep this comment"));
+        assert!(saved.contains("custom = \"keep me\""));
+        assert!(saved.contains("custom = \"also keep me\""));
+        assert!(saved.contains("retry = { max_retries = 0 } # deliberately disabled"));
+        let reloaded = Config::load_with(&paths).unwrap();
+        let policy = reloaded.to_tunnel_commands()["database"]
+            .retry
+            .clone()
+            .unwrap();
+        assert_eq!(policy, RetryPolicy::default());
+        assert_eq!(policy.max_retries, 3);
+        assert_eq!(policy.strategy, crate::tunnel::RetryStrategy::Exponential);
+        assert_eq!((policy.initial_delay_secs, policy.max_delay_secs), (5, 60));
+        let document: V2Document = toml::from_str(&saved).unwrap();
+        assert!(document.sections[0].items[0].retry.is_none());
+        assert!(
+            ConfigSettingUpdate::auto_retry_candidates(&paths)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(ConfigSettingUpdate::prepare_auto_retry(&paths, "database").is_err());
+        assert!(ConfigSettingUpdate::prepare_auto_retry(&paths, "other").is_err());
+        assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), saved);
+        fs::remove_dir_all(paths.directory).unwrap();
+    }
+
+    #[test]
+    fn menu_auto_retry_supports_inline_sections_and_refuses_conflicting_edits() {
+        let paths = test_paths("menu-auto-retry-inline");
+        let original = "version = 2\nsections = [{ id = 'connections', kind = 'tunnel', items = [{ id = 'db', name = 'DB', start = ['true'], stop = ['true'] }] }]\n";
+        fs::write(paths.config_path(), original).unwrap();
+        let update = ConfigSettingUpdate::prepare_auto_retry(&paths, "db").unwrap();
+        let edited = format!("{original}# edited while the menu was open\n");
+        fs::write(paths.config_path(), &edited).unwrap();
+        assert!(update.save().is_err());
+        assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), edited);
+        ConfigSettingUpdate::prepare_auto_retry(&paths, "db")
+            .unwrap()
+            .save()
+            .unwrap();
+        assert_eq!(
+            Config::load_with(&paths)
+                .unwrap()
+                .tunnel("db")
+                .unwrap()
+                .retry,
+            Some(RetryPolicy::default())
+        );
+        assert!(ConfigSettingUpdate::prepare_auto_retry(&paths, "missing").is_err());
+        fs::remove_dir_all(paths.directory).unwrap();
+    }
+
+    #[test]
+    fn menu_auto_retry_hides_existing_policies_and_rejects_invalid_files() {
+        let paths = test_paths("menu-auto-retry-existing");
+        let base = "version = 2\n[[sections]]\nid = 'connections'\nkind = 'tunnel'\n[[sections.items]]\nid = 'db'\nname = 'DB'\nstart = ['true']\nstop = ['true']\n";
+        for setting in [
+            "retry = {}",
+            "retry = { max_retries = 0 }",
+            "[sections.items.retry]\nmax_retries = 7",
+        ] {
+            let original = format!("{base}{setting}\n");
+            fs::write(paths.config_path(), &original).unwrap();
+            assert!(
+                ConfigSettingUpdate::auto_retry_candidates(&paths)
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(ConfigSettingUpdate::prepare_auto_retry(&paths, "db").is_err());
+            assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), original);
+        }
+        for original in [
+            "invalid!",
+            "version = 99",
+            "version = 1",
+            "version = 2\nsettings = false",
+        ] {
+            fs::write(paths.config_path(), original).unwrap();
+            assert!(ConfigSettingUpdate::auto_retry_candidates(&paths).is_err());
+            assert!(ConfigSettingUpdate::prepare_auto_retry(&paths, "db").is_err());
+            assert_eq!(fs::read_to_string(paths.config_path()).unwrap(), original);
+        }
         fs::remove_dir_all(paths.directory).unwrap();
     }
 

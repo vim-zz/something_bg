@@ -228,6 +228,22 @@ The order of `[[sections]]` and `[[sections.items]]` entries is the menu order. 
 
 Legacy unversioned files and `version = 1` files are migrated automatically. The original is retained as `config.toml.v1.bak`, while `config.toml` is rewritten in the current format.
 
+### Automatic connection retries
+
+When a connection fails, choose **Enable Auto Retry (3 retries)** from its submenu to save the default policy, reload the configuration, and retry the connection. The action is hidden if that connection already has a retry setting, including one with `max_retries = 0`. Saving preserves comments and unrelated settings.
+
+You can also add `retry` to a tunnel's `[[sections.items]]` entry to reconnect after a launch error or a nonzero exit:
+
+```toml
+retry = { max_retries = 3, strategy = "exponential", initial_delay_secs = 5, max_delay_secs = 60 }
+```
+
+This example waits 5, 10, and 20 seconds before its three retries. Use `strategy = "fixed"` to wait `initial_delay_secs` between every attempt. Delays are whole seconds, with `1 <= initial_delay_secs <= max_delay_secs <= 86400`.
+
+Retry is off when omitted or when `max_retries = 0`. Adding `retry = {}` enables the defaults: three retries, exponential delays starting at 5 seconds, capped at 60 seconds. The limit excludes the initial attempt and applies until you disconnect or manually start a new connection; a running process does not reset the count. Commands that exit successfully (such as daemon launchers) keep their existing behavior and are not retried.
+
+While waiting, the menu bar icon shows the error badge, the connection shows a warning triangle and its submenu shows a live **Retrying in …** countdown and the retry number. Choose **Show Error…** in that submenu to inspect the latest failed attempt without interrupting retries, or **Stop** to stop retries for this attempt while keeping the warning triangle, latest error, and saved auto-retry settings. **Clear** dismisses that error; **Retry** starts a new retry cycle. **Disconnect All** cancels retries and stops active connections. Only the final failure produces an error notification. Stopping, quitting, or removing/changing the connection on reload cancels its pending retries; a changed active connection restarts with the new settings. Choose **Settings → Reload** after editing the file.
+
 ### One-Time Commands
 
 Run any command with a single click from the menu bar. Each command has a configurable `output` mode:
