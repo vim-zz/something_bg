@@ -474,6 +474,13 @@ impl TunnelManager {
         self.pending_failures.lock().unwrap().remove(key);
     }
 
+    /// Dismiss all saved failures without changing active connections or retries.
+    pub fn clear_all_failed(&self) {
+        let _generations = self.generations.lock().unwrap();
+        self.failures.lock().unwrap().clear();
+        self.pending_failures.lock().unwrap().clear();
+    }
+
     /// Each current failure is delivered once. Clear/retry/stop cancels pending delivery.
     pub fn take_failures(&self) -> Vec<(String, TunnelFailure)> {
         let _generations = self.generations.lock().unwrap();
@@ -1211,6 +1218,68 @@ mod tests {
         manager.record_failure("test", 1, failure());
         assert!(!manager.has_failure("test"));
         assert!(manager.take_failures().is_empty());
+    }
+
+    #[test]
+    fn clearing_all_failures_preserves_connections_retries_and_configuration() {
+        let manager = active_manager();
+        for key in ["failed-a", "failed-b", "idle", "retrying"] {
+            manager
+                .commands_config
+                .lock()
+                .unwrap()
+                .insert(key.into(), command());
+        }
+        for key in ["failed-a", "failed-b"] {
+            manager.generations.lock().unwrap().insert(key.into(), 1);
+            manager.active_tunnels.lock().unwrap().insert(key.into());
+            manager.record_failure(key, 1, failure());
+        }
+        manager
+            .generations
+            .lock()
+            .unwrap()
+            .insert("retrying".into(), 1);
+        manager
+            .active_tunnels
+            .lock()
+            .unwrap()
+            .insert("retrying".into());
+        manager
+            .active_commands
+            .lock()
+            .unwrap()
+            .insert("retrying".into(), command());
+        manager.schedule_retry("retrying", 1, &RetryPolicy::default(), 0, &failure());
+        assert_eq!(manager.failure_count(), 2);
+        let active = manager.active_tunnels.lock().unwrap().clone();
+        let commands = manager.active_commands.lock().unwrap().clone();
+        let config = manager.commands_config.lock().unwrap().clone();
+        let generations = manager.generations.lock().unwrap().clone();
+        let retry = manager.retry_status("retrying").unwrap();
+
+        manager.clear_all_failed();
+        // Empty/repeated bulk clearing is harmless, including during retry backoff.
+        manager.clear_all_failed();
+
+        assert_eq!(manager.failure_count(), 0);
+        assert!(manager.take_failures().is_empty());
+        assert_eq!(*manager.active_tunnels.lock().unwrap(), active);
+        assert!(*manager.active_commands.lock().unwrap() == commands);
+        assert!(*manager.commands_config.lock().unwrap() == config);
+        assert_eq!(*manager.generations.lock().unwrap(), generations);
+        assert_eq!(
+            manager.retry_status("retrying").unwrap().next_attempt_at,
+            retry.next_attempt_at
+        );
+        // Late reports from dismissed attempts cannot restore their warnings.
+        manager.record_failure("failed-a", 1, failure());
+        assert_eq!(manager.failure_count(), 0);
+        assert!(manager.take_failures().is_empty());
+        // A subsequent failure on an active connection still reports normally.
+        manager.record_failure("test", 1, failure());
+        assert_eq!(manager.failure_count(), 1);
+        assert_eq!(manager.take_failures().len(), 1);
     }
 
     #[test]

@@ -99,6 +99,7 @@ const SCHEDULED_TASK_TAG: isize = 10_005;
 const RETRY_ALL_FAILED_TAG: isize = 10_006;
 const ENABLE_AUTO_RETRY_TAG: isize = 10_007;
 const RETRY_COUNTDOWN_TAG: isize = 10_008;
+const CLEAR_ALL_FAILED_TAG: isize = 10_009;
 
 // Declare the MenuHandler class using objc2's define_class! macro
 define_class!(
@@ -291,6 +292,19 @@ define_class!(
         fn retry_all_failed(&self, _item: &NSMenuItem) {
             if let Some(app) = GLOBAL_APP.get() {
                 app.tunnel_manager.retry_all_failed();
+                if let Some(status) = app.get_status_item() {
+                    update_status_item(&status, self.mtm());
+                    if let Some(menu) = status.menu(self.mtm()) {
+                        refresh_connection_items(&menu);
+                    }
+                }
+            }
+        }
+
+        #[unsafe(method(clearAllFailed:))]
+        fn clear_all_failed(&self, _item: &NSMenuItem) {
+            if let Some(app) = GLOBAL_APP.get() {
+                app.tunnel_manager.clear_all_failed();
                 if let Some(status) = app.get_status_item() {
                     update_status_item(&status, self.mtm());
                     if let Some(menu) = status.menu(self.mtm()) {
@@ -769,6 +783,9 @@ fn refresh_connection_items_with_candidates(
         if item.tag() == RETRY_ALL_FAILED_TAG {
             update_retry_all_failed_item(&item, failed_count);
         }
+        if item.tag() == CLEAR_ALL_FAILED_TAG {
+            update_clear_all_failed_item(&item, failed_count);
+        }
         // Bulk actions live in Connections; don't descend into diagnostics,
         // which are rebuilt below and contain no connection status items.
         if item.tag() != CONNECTION_TAG
@@ -1128,6 +1145,17 @@ pub fn create_menu(
     retry_all_failed_item.setTag(RETRY_ALL_FAILED_TAG);
     update_retry_all_failed_item(&retry_all_failed_item, failed_connection_count());
     connections_menu.addItem(&retry_all_failed_item);
+
+    let clear_all_failed_item = create_menu_item_with_action(
+        ns_string!("Clear all failed"),
+        Some(sel!(clearAllFailed:)),
+        ns_string!(""),
+        mtm,
+    );
+    set_menu_item_target(&clear_all_failed_item, handler as &AnyObject);
+    clear_all_failed_item.setTag(CLEAR_ALL_FAILED_TAG);
+    update_clear_all_failed_item(&clear_all_failed_item, failed_connection_count());
+    connections_menu.addItem(&clear_all_failed_item);
     connections_item.setSubmenu(Some(&connections_menu));
     menu.addItem(&connections_item);
 
@@ -1427,6 +1455,13 @@ fn failed_connection_count() -> usize {
 fn update_retry_all_failed_item(item: &NSMenuItem, failed_count: usize) {
     item.setTitle(&NSString::from_str(&format!(
         "Retry all failed ({failed_count})"
+    )));
+    item.setEnabled(failed_count > 0);
+}
+
+fn update_clear_all_failed_item(item: &NSMenuItem, failed_count: usize) {
+    item.setTitle(&NSString::from_str(&format!(
+        "Clear all failed ({failed_count})"
     )));
     item.setEnabled(failed_count > 0);
 }

@@ -1,5 +1,11 @@
 # Release Notes - Something in the Background
 
+## v1.23.0
+
+**Release Date:** November 10, 2026
+
+- Added Clear all failed to the Connections menu.
+
 ## v1.22.0
 
 **Release Date:** October 25, 2026
